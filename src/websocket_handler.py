@@ -1,13 +1,28 @@
 import json
 import logging
+import time
 from src.player import format_duration
 
 logger = logging.getLogger(__name__)
+
+# Track last activity time locally
+_last_websocket_activity = time.time()
+
+def get_last_activity_time():
+    """Get the last time a websocket message was received"""
+    return _last_websocket_activity
+
+# Add the function with the name expected by app.py
+def get_last_websocket_activity():
+    """Get the last time a websocket message was received (alias for compatibility)"""
+    return _last_websocket_activity
 
 async def websocket_handler(websocket, player, save_state_callback):
     """
     Handle WebSocket connections and player control commands
     """
+    global _last_websocket_activity
+    
     init_payload = {
         'state': player.current_state(),
         'songs': [
@@ -19,6 +34,9 @@ async def websocket_handler(websocket, player, save_state_callback):
     
     async for message in websocket:
         try:
+            # Update activity time when any WebSocket message is received
+            _last_websocket_activity = time.time()
+            
             command = message.strip().lower()
             state_changed = False
             
