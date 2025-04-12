@@ -191,7 +191,9 @@ async def start_servers():
     ws_server = await websockets.serve(
         lambda ws, path: websocket_handler(ws, player, save_state),
         "0.0.0.0", 
-        8765
+        8765,
+        ping_interval=20,
+        ping_timeout=30
     )
     
     # Start Flask in a separate thread but don't await it

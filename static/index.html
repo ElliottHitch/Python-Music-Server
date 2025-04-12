@@ -13,8 +13,16 @@
 
     // Connect to the websocket server.
     const connectWebSocket = () => {
+      console.log(`Attempting to connect to WebSocket at ${wsUrl}`);
+      setStatus(`Connecting to WebSocket at ${wsUrl}...`, 0);
+      
       websocket = new WebSocket(wsUrl);
-      websocket.onopen = () => console.log("Connected to WebSocket server");
+      
+      websocket.onopen = () => {
+        console.log("Connected to WebSocket server");
+        setStatus("Connected to WebSocket server", 2000);
+      };
+      
       websocket.onmessage = event => {
         try {
           const data = JSON.parse(event.data);
@@ -32,12 +40,15 @@
           console.error("Error parsing WebSocket message:", event.data);
         }
       };
+      
       websocket.onerror = error => {
         console.error("WebSocket Error:", error);
-        setStatus("There was a WebSocket error. Shit aint working.", 5000);
+        setStatus(`WebSocket Error: Cannot connect to ${wsUrl}. Check console for details.`, 0);
       };
+      
       websocket.onclose = () => {
-        console.log("WebSocket closed. Reconnecting in 3 seconds...");
+        console.log("WebSocket closed. Reconnecting in 5 seconds...");
+        setStatus("WebSocket closed. Reconnecting in 5 seconds...", 5000);
         setTimeout(connectWebSocket, 5000);
       };
     };

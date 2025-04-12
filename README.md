@@ -31,6 +31,19 @@ pip install -r requirements.txt
 python app.py
 ```
 
+### 4. Monitor audio with Cava
+
+Install Cava (Console Audio Visualizer):
+```bash
+# On Raspberry Pi/Debian/Ubuntu
+sudo apt install cava
+```
+
+Run in a separate terminal to visualize the music:
+```bash
+cava
+```
+
 The web interface is available at:
 - http://localhost:5000 (local)
 - http://[device-ip]:5000 (remote)
