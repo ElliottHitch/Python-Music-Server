@@ -2,26 +2,30 @@
 
 A web-based music player application for Raspberry Pi and standard computers.
 
-## Quick Start
+### Setup Instructions
 
-### Setup
+### 1. Create and activate a virtual environment
 
-```bash
-# Create and activate virtual environment
+**Windows**:
+```
 python -m venv venv
-
-# Windows
 venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
+```
 
-# Install dependencies
+**macOS/Linux**:
+```
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 2. Install dependencies
+
+```
 pip install -r requirements.txt
 ```
 
-### Run
-
-```bash
+### 3. Run the application
+```
 python app.py
 ```
 
