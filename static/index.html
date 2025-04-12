@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="/static/styles.css">
+  <title>Elevation Music</title>
+  <script>
+    let websocket;
+    let isPaused = true;
+    let songs = [];
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsProtocol}://${window.location.hostname}:8765`;
+
+    // Connect to the websocket server.
+    const connectWebSocket = () => {
+      websocket = new WebSocket(wsUrl);
+      websocket.onopen = () => console.log("Connected to WebSocket server");
+      websocket.onmessage = event => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.songs) {
+            songs = data.songs;
+            populateSongs(songs);
+          }
+          if (data.state) {
+            updateUI(data.state);
+          }
+          if (data.message) {
+            setStatus(data.message, 5000);
+          }
+        } catch (e) {
+          console.error("Error parsing WebSocket message:", event.data);
+        }
+      };
+      websocket.onerror = error => {
+        console.error("WebSocket Error:", error);
+        setStatus("There was a WebSocket error. Shit aint working.", 5000);
+      };
+      websocket.onclose = () => {
+        console.log("WebSocket closed. Reconnecting in 3 seconds...");
+        setTimeout(connectWebSocket, 5000);
+      };
+    };
+
+    const setStatus = (message, timeout = 5000) => {
+      const statusEl = document.getElementById('status');
+      statusEl.innerText = message;
+      if (timeout) {
+        setTimeout(() => {
+            statusEl.innerText = "";
+        }, timeout);
+      }
+    };
+
+    const sendCommand = command => {
+      console.log("Sending command:", command);
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(command);
+      } else {
+        setStatus("WebSocket connection is not open.", 5000);
+      }
+    };
+
+    // Control functions.
+    const playPauseToggle = () => sendCommand(isPaused ? "play" : "pause");
+    const playSong = index => sendCommand(`play:${index}`);
+    const setVolume = volume => sendCommand(`volume:${volume}`);
+    const toggleShuffle = () => sendCommand("toggle-shuffle");
+
+    const easeInOutQuad = t => (t < 0.5 ? 2*t*t : -1 + (4-2*t)*t);
+    const animateScroll = (container, target, duration) => {
+      const start = container.scrollTop;
+      const change = target - start;
+      const startTime = performance.now();
+      const animateScrollStep = currentTime => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        container.scrollTop = start + change * easeInOutQuad(progress);
+        if (progress < 1) requestAnimationFrame(animateScrollStep);
+      };
+      requestAnimationFrame(animateScrollStep);
+    };
+
+    // Update UI based on received state.
+    const updateUI = state => {
+      console.log("Updating UI with state:", state);
+      document.getElementById('volumeSlider').value = state.volume;
+      isPaused = state.paused;
+      document.getElementById('playPauseIcon').src = state.paused ?
+          '/static/icons/svg/filled/play.svg' : '/static/icons/svg/filled/pause.svg';
+      const shuffleBtn = document.getElementById('shuffleButton');
+      state.shuffle ? shuffleBtn.classList.add('active') : shuffleBtn.classList.remove('active');
+      
+      // Highlight active song row and center it.
+      const container = document.querySelector('.table-container');
+      const rows = document.querySelectorAll('#songsTable tbody tr');
+      rows.forEach((row, index) => {
+        if (index === state.current_index) {
+          row.classList.add('active');
+          const offset = row.offsetTop - (container.clientHeight / 2) + (row.clientHeight / 2);
+          animateScroll(container, offset, 500);
+        } else {
+          row.classList.remove('active');
+        }
+      });
+    };
+
+    // Populate the songs table.
+    const populateSongs = songsList => {
+      const tbody = document.querySelector('#songsTable tbody');
+      tbody.innerHTML = "";
+      songsList.forEach((song, index) => {
+        const row = tbody.insertRow();
+        const cell = row.insertCell(0);
+        cell.innerText = song.name;
+        row.addEventListener('click', () => {
+            playSong(index);
+            const searchBox = document.getElementById('search');
+            searchBox.value = '';
+            searchBox.dispatchEvent(new Event('input'));
+        });
+      });
+    };
+
+    // Search filtering and recentering.
+    const handleSearch = e => {
+      const query = e.target.value.toLowerCase();
+      const rows = document.querySelectorAll('#songsTable tbody tr');
+      rows.forEach(row => {
+        const cellText = row.querySelector('td').innerText.toLowerCase();
+        row.style.display = cellText.includes(query) ? '' : 'none';
+      });
+      if (query === "") {
+        rows.forEach(row => row.style.display = '');
+        const container = document.querySelector('.table-container');
+        const newScrollTop = (container.scrollHeight - container.clientHeight) / 2;
+        animateScroll(container, newScrollTop, 500);
+      }
+    };
+
+    // Download and deletion functions.
+    const downloadYouTubeSong = () => {
+      const url = document.getElementById('youtubeURL').value;
+      if (!url) {
+        setStatus("Please enter a YouTube URL.", 5000);
+        return;
+      }
+      fetch('/download', {  
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      })
+      .then(response => response.json())
+      .then(data => {
+        setStatus(data.message, 5000);
+        // Refresh the playlist after 2 seconds.
+        setTimeout(() => { location.reload(); }, 2000);
+      })
+      .catch(err => {
+        console.error("Error downloading song:", err);
+        setStatus("Error downloading song. Check console for details.", 5000);
+      });
+    };
+
+    const deleteActiveSong = () => {
+      const activeRow = document.querySelector('#songsTable tbody tr.active');
+      if (!activeRow) {
+        setStatus("No active song selected for deletion.", 5000);
+        return;
+      }
+      const songName = activeRow.querySelector('td').innerText;
+      // Show custom confirmation message.
+      const statusEl = document.getElementById('status');
+      statusEl.innerHTML = `Are you sure you want to delete "<strong>${songName}</strong>"? 
+                             <button id="confirmDelete">Yes</button> 
+                             <button id="cancelDelete">No</button>`;
+      document.getElementById('confirmDelete').addEventListener('click', () => {
+          const rows = Array.from(document.querySelectorAll('#songsTable tbody tr'));
+          const index = rows.indexOf(activeRow);
+          sendCommand(`delete:${index}`);
+          statusEl.innerText = "";
+      });
+      document.getElementById('cancelDelete').addEventListener('click', () => {
+          setStatus("Deletion cancelled.", 5000);
+      });
+    };
+
+    // Setup event listeners on window load.
+    window.onload = () => {
+      connectWebSocket();
+      document.getElementById('playPauseButton').addEventListener('click', playPauseToggle);
+      document.getElementById('nextButton').addEventListener('click', () => sendCommand("next"));
+      document.getElementById('backButton').addEventListener('click', () => sendCommand("back"));
+      document.getElementById('shuffleButton').addEventListener('click', toggleShuffle);
+      document.getElementById('volumeSlider').addEventListener('input', function() {
+        setVolume(this.value);
+      });
+      document.getElementById('submitURL').addEventListener('click', e => {
+        e.preventDefault();
+        downloadYouTubeSong();
+      });
+      document.getElementById('search').addEventListener('input', handleSearch);
+      document.getElementById('deleteButton').addEventListener('click', deleteActiveSong);
+    };
+
+    window.onerror = (msg, url, lineNo, columnNo, error) => {
+      console.error("Global error:", { msg, url, lineNo, columnNo, error });
+      setStatus("An unexpected error occurred. Check console for details.", 5000);
+      return false;
+    };
+
+    window.addEventListener("unhandledrejection", event => {
+      console.error("Unhandled promise rejection:", event.reason);
+      setStatus("An error occurred with a background task.", 5000);
+    });
+  </script>
+</head>
+<body>
+  <p id="status"></p>
+  <div class="button-container">
+      <button id="backButton" class="audio-control">
+          <img src="/static/icons/svg/filled/back.svg" alt="Back" width="45" height="45">
+      </button>
+      <button id="playPauseButton" class="audio-control">
+          <img id="playPauseIcon" src="/static/icons/svg/filled/play.svg" alt="Play/Pause" width="45" height="45">
+      </button>
+      <button id="nextButton" class="audio-control">
+          <img src="/static/icons/svg/filled/next.svg" alt="Next" width="45" height="45">
+      </button>
+      <button id="shuffleButton">Shuffle</button>
+  </div>
+  <div class="youtube-container">
+      <input type="url" id="youtubeURL" placeholder="Paste YouTube URL">
+      <input type="submit" id="submitURL" value="Submit">
+  </div>
+  <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.5">
+  <div class="form-group">
+      <input type="text" id="search" class="form-control" placeholder="Search for a song">
+      <!-- New delete button added next to the search box -->
+      <button id="deleteButton">Delete</button>
+  </div>
+  <div class="table-container">
+      <table id="songsTable">
+          <thead>
+              <tr>
+                  <th></th>
+              </tr>
+          </thead>
+          <tbody></tbody>
+      </table>
+  </div>
+</body>
+</html>

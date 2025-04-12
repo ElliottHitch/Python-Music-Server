@@ -1,0 +1,24 @@
+[Unit]
+Description=RPI Music Player Service
+After=network.target
+
+[Service]
+Type=simple
+# Change "pi" to your actual username
+User=pi
+# Change to the full path of your application directory
+WorkingDirectory=/path/to/your/music/player
+# Change to the correct path to your Python executable (use 'which python' to find it)
+ExecStart=/usr/bin/python app.py
+Restart=always
+RestartSec=5
+# Watchdog settings - will restart service if no ping received for 60 seconds
+WatchdogSec=60
+# Enable watchdog notification from the application
+NotifyAccess=main
+
+# Add any environment variables your application needs here
+# Environment=VARIABLE=value
+
+[Install]
+WantedBy=multi-user.target 

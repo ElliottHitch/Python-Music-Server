@@ -1,0 +1,254 @@
+/* Modern, clean UI stylesheet for the audio player */
+
+/*
+back up colors
+    --PRIMARY: #BB86FC;
+    --SECONDARY: #38e8f8;
+    --PRIMARY: #55d298;
+    --SECONDARY: #D25A55;
+    --PRIMARY: #46b9c4;
+    --SECONDARY: #306b71;
+*/
+
+:root {
+    --BACKGROUND: #151515;
+    --SURFACE: #252525;
+    --PRIMARY: #1a8cd8;
+    --SECONDARY: #114b72;
+    --ONBACKGROUND: #FFFFFF;
+    --ONSURFACE: #FFFFFF;
+    --ONPRIMARY: #FFFFFF;
+    --ONSECONDARY: #000000;
+    /* --ACTIVE: #c45146; */
+    --ACTIVE: #16b84c;
+    --btn-width: 60px;
+    --btn-height: 30px;
+    --btn-border-radius: 10px;
+    --btn-transition: background 0.3s ease, transform 0.2s ease;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--BACKGROUND);
+    color: #333;
+    text-align: center;
+    padding: 20px;
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 40px; /* Equal vertical spacing for direct children */
+    overflow: hidden;
+}
+
+h1 {
+    font-size: 2rem;
+    color: var(--ONBACKGROUND);
+    margin: 0; /* Rely on body's gap */
+}
+
+/* Remove extra margins on buttons since body gap provides spacing */
+button {
+    background: var(--PRIMARY);
+    color: var(--ONSURFACE);
+    border: none;
+    padding: 12px 20px;
+    font-size: 1rem;
+    border-radius: var(--btn-border-radius);
+    cursor: pointer;
+    transition: var(--btn-transition);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    /* Removed margin to use the gap from the container */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Add focus states */
+button:focus-visible,
+#volumeSlider:focus-visible {
+    outline: 2px solid var(--SECONDARY);
+    outline-offset: 2px;
+}
+
+button:hover {
+    background-color: var(--SECONDARY);
+    transform: translateY(-2px);
+    scale: 1.01;
+}
+
+button:active {
+    transform: translateY(1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+button.paused {
+    background-color: var(--ACTIVE);
+}
+
+button#shuffleButton.active {
+    background-color: var(--ACTIVE);
+}
+
+#status {
+    font-size: 1.2rem;
+    color: var(--ONSURFACE);
+}
+
+.table-container {
+    width: 100%;
+    max-width: 900px; 
+    margin: 0 auto 30px auto;
+    max-height: 70vh;  
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--PRIMARY) var(--SURFACE);
+}
+
+.table-container::-webkit-scrollbar {
+    width: 8px;
+    background: var(--SURFACE);
+}
+
+.table-container::-webkit-scrollbar-thumb {
+    background: var(--PRIMARY);
+    border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+    background: var(--SECONDARY);
+}
+
+table {
+    border-collapse: separate;
+    border-spacing: 5px;
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto; 
+}
+
+td {
+    background-color: var(--SURFACE);
+    border-radius: 10px;
+    padding: 12px 15px;
+    border: 1px solid var(--SURFACE);
+    text-align: left;
+    color: var(--ONSURFACE);
+}
+
+td:hover {
+    transition: all 0.5s ease;
+    scale: 1.01;
+    background-color: var(--SECONDARY);
+}
+
+td:active {
+    scale: 1.02;
+    background-color: var(--ACTIVE);
+}
+
+tr.active td {
+    background-color: var(--PRIMARY);
+}
+
+.youtube-container {
+    display: inline-block;
+}
+
+#youtubeURL {
+    border: none;
+    width: 20%;
+    height: 30px;
+    margin: 0 auto;
+    border-radius: 10px;
+    background-color: var(--SURFACE);
+    color: var(--ONSURFACE); 
+}
+
+#submitURL {
+    border: none;
+    width: var(--btn-width);
+    height: var(--btn-height);
+    border-radius: var(--btn-border-radius);
+    background-color: var(--PRIMARY);
+    color: var(--ONSURFACE);
+}
+
+#submitURL:hover {
+    background-color: var(--SECONDARY);
+    transform: scale(1.02);
+}
+
+#submitURL:active {
+    background-color: var(--ACTIVE);
+    transform: translateY(1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+#deleteButton {
+    width: var(--btn-width);
+    height: var(--btn-height);
+    border-radius: var(--btn-border-radius);
+}
+
+#deleteButton:hover {
+    background-color: var(--SECONDARY);
+    transform: scale(1.02);
+}
+
+#deleteButton:active {
+    background-color: var(--ACTIVE);
+    transform: translateY(1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+#volumeSlider {
+    width: 30%;
+    margin: 0 auto;  /* Center the slider */
+    accent-color: var(--PRIMARY);
+}
+
+.button-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px; /* Spacing between buttons */
+}
+
+#nextButton, #backButton, #playPauseButton {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+}
+
+.audio-control {
+    filter: invert(44%) sepia(88%) saturate(1030%) hue-rotate(179deg) brightness(98%) contrast(90%);
+}
+
+.audio-control:hover {
+    filter: invert(25%) sepia(29%) saturate(1192%) hue-rotate(161deg) brightness(98%) contrast(102%);
+}
+
+.audio-control:active {
+    filter: invert(32%) sepia(16%) saturate(2435%) hue-rotate(318deg) brightness(118%) contrast(85%);
+}
+
+#search {
+    border-radius: 10px;
+    width: 30%;
+    border: none;
+    height: 40px;
+    background-color: var(--SURFACE);
+    color: var(--ONSURFACE);  /* New: Text color set to onSurface */
+}
+
+@media (max-width: 600px) {
+    button {
+        width: auto;
+    }
+
+    table {
+        width: 100%;
+    }
+}

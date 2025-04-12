@@ -1,0 +1,33 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Log files
+*.log
+src/app.log
+
+# State files
+src/state.json
+
+# IDE files
+.vscode/
+.idea/
+.cursor/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Config that might contain sensitive info
+config.json
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/ 
