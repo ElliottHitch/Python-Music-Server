@@ -65,7 +65,7 @@ def load_config():
         with open(CONFIG_FILE, "r") as f:
             return json.load(f)
     except Exception as e:
-        logger.exception(f"❌ Error loading config from {CONFIG_FILE}")
+        logger.exception(f"[ERROR] Error loading config from {CONFIG_FILE}")
         # Fallback to default path in user's Music folder
         default_path = os.path.join(os.path.expanduser("~"), "Music")
         return {"audio_folder": default_path}
@@ -76,7 +76,7 @@ def save_state(state_data):
         with open(STATE_FILE, "w") as f:
             json.dump(state_data, f)
     except Exception as e:
-        logger.exception("❌Error saving state")
+        logger.exception("[ERROR] Error saving state")
 
 def load_state():
     try:
@@ -84,5 +84,5 @@ def load_state():
             with open(STATE_FILE, "r") as f:
                 return json.load(f)
     except Exception as e:
-        logger.exception("❌ Error loading state")
+        logger.exception("[ERROR] Error loading state")
     return None 

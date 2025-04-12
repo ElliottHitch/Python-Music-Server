@@ -23,17 +23,17 @@ class SongCache:
             if os.path.exists(self.cache_path):
                 with open(self.cache_path, 'r') as f:
                     cache = json.load(f)
-                logger.info(f"✅ Loaded song cache with {len(cache['files'])} entries")
+                logger.info(f"[OK] Loaded song cache with {len(cache['files'])} entries")
                 return cache
             else:
-                logger.info("❕ No song cache found, creating new one")
+                logger.info("[INFO] No song cache found, creating new one")
                 return {
                     "version": 1,
                     "last_updated": datetime.now().isoformat(),
                     "files": {}
                 }
         except Exception as e:
-            logger.error(f"❌ Error loading song cache: {e}")
+            logger.error(f"[ERROR] Error loading song cache: {e}")
             return {
                 "version": 1,
                 "last_updated": datetime.now().isoformat(),
@@ -49,10 +49,10 @@ class SongCache:
             self.cache["last_updated"] = datetime.now().isoformat()
             with open(self.cache_path, 'w') as f:
                 json.dump(self.cache, f, indent=2)
-            logger.info(f"✅ Saved song cache with {len(self.cache['files'])} entries")
+            logger.info(f"[OK] Saved song cache with {len(self.cache['files'])} entries")
             self.modified = False
         except Exception as e:
-            logger.error(f"❌ Error saving song cache: {e}")
+            logger.error(f"[ERROR] Error saving song cache: {e}")
             
     def get_cached_audio_files(self, folder, get_duration_func=None):
         """Get audio files, using cache where possible"""
@@ -63,7 +63,7 @@ class SongCache:
         current_files = set()
         
         # Scan the actual folder
-        logger.info(f"🔍 Scanning audio folder: {folder}")
+        logger.info(f"[SCAN] Scanning audio folder: {folder}")
         start_time = time.time()
         
         try:
@@ -82,7 +82,7 @@ class SongCache:
                     mtime = stat.st_mtime
                     size = stat.st_size
                 except Exception as e:
-                    logger.error(f"❌ Error getting file stats for {file_path}: {e}")
+                    logger.error(f"[ERROR] Error getting file stats for {file_path}: {e}")
                     continue
                     
                 # Check if file is in cache and unchanged
@@ -105,7 +105,7 @@ class SongCache:
                         try:
                             duration = get_duration_func(file_path)
                         except Exception as e:
-                            logger.error(f"❌ Error calculating duration for {file}: {e}")
+                            logger.error(f"[ERROR] Error calculating duration for {file}: {e}")
                     
                     entry = {
                         "path": file_path,
@@ -134,17 +134,17 @@ class SongCache:
                     self.modified = True
             
             if removed > 0:
-                logger.info(f"🧹 Removed {removed} deleted files from cache")
+                logger.info(f"[CLEANUP] Removed {removed} deleted files from cache")
                     
             # Save updated cache
             self.save_cache()
             
             end_time = time.time()
-            logger.info(f"✅ Found {len(files_list)} audio files ({cache_hits} from cache, {cache_misses} new) in {end_time-start_time:.2f}s")
+            logger.info(f"[OK] Found {len(files_list)} audio files ({cache_hits} from cache, {cache_misses} new) in {end_time-start_time:.2f}s")
             
             return files_list
         except Exception as e:
-            logger.error(f"❌ Error scanning folder {folder}: {e}")
+            logger.error(f"[ERROR] Error scanning folder {folder}: {e}")
             return []
     
     def update_song_duration(self, file_path, duration):
@@ -200,10 +200,10 @@ class SongCache:
                         self.modified = True
             
             if removed > 0:
-                logger.info(f"🧹 Pruned {removed} old entries from cache")
+                logger.info(f"[CLEANUP] Pruned {removed} old entries from cache")
                 self.save_cache()
                 
             return removed
         except Exception as e:
-            logger.error(f"❌ Error pruning cache: {e}")
+            logger.error(f"[ERROR] Error pruning cache: {e}")
             return 0 

@@ -18,7 +18,7 @@ from src.logger import setup_logger
 from src.config import load_config, load_state, save_state
 from src.player import PygamePlayer, get_audio_files, get_duration
 from src.routes import setup_routes
-from src.websocket_handler import websocket_handler, get_last_websocket_activity
+from src.websocket_handler import websocket_handler, get_last_websocket_activity, broadcast_state_change
 from src.song_cache import SongCache
 
 # Optional systemd integration
@@ -60,7 +60,7 @@ class Watchdog:
     def start(self):
         """Start the watchdog monitor thread."""
         self.thread.start()
-        logger.info("✅ Watchdog monitor started")
+        logger.info("[OK] Watchdog monitor started")
         
     def heartbeat(self):
         """Update the heartbeat timestamp."""
@@ -70,7 +70,7 @@ class Watchdog:
             try:
                 systemd.daemon.notify("WATCHDOG=1")
             except Exception as e:
-                logger.error(f"❌ Failed to notify systemd watchdog: {e}")
+                logger.error(f"[ERROR] Failed to notify systemd watchdog: {e}")
         
     def _monitor(self):
         """Monitor thread that checks for system health."""
@@ -79,18 +79,18 @@ class Watchdog:
             
             # If no heartbeat for more than 2x the interval, restart
             if time_since_heartbeat > (self.check_interval * 2):
-                logger.error(f"❌ Watchdog detected no heartbeat for {time_since_heartbeat:.1f} seconds. Restarting application...")
+                logger.error(f"[ERROR] Watchdog detected no heartbeat for {time_since_heartbeat:.1f} seconds. Restarting application...")
                 self._restart_application()
                 return
                 
             # Check other critical components
             try:
                 if player and not pygame.mixer.get_init():
-                    logger.error("❌ Watchdog detected pygame mixer failure. Restarting application...")
+                    logger.error("[ERROR] Watchdog detected pygame mixer failure. Restarting application...")
                     self._restart_application()
                     return
             except Exception as e:
-                logger.error(f"❌ Watchdog error during health check: {e}")
+                logger.error(f"[ERROR] Watchdog error during health check: {e}")
                 
             time.sleep(self.check_interval)
             
@@ -101,7 +101,7 @@ class Watchdog:
             return
             
         restart_in_progress = True
-        logger.info("🔄 Initiating application restart...")
+        logger.info("[RESTART] Initiating application restart...")
         
         # Save state before restarting
         if player:
@@ -111,7 +111,7 @@ class Watchdog:
         try:
             os.execv(sys.executable, ['python'] + sys.argv)
         except Exception as e:
-            logger.error(f"❌ Failed to restart application: {e}")
+            logger.error(f"[ERROR] Failed to restart application: {e}")
             # If we can't restart, exit and let the external watchdog handle it
             os._exit(1)
     
@@ -142,7 +142,7 @@ class MemoryMonitor:
     def start(self):
         """Start the memory monitor thread."""
         self.thread.start()
-        logger.info("✅ Memory monitor started")
+        logger.info("[OK] Memory monitor started")
         
     def _monitor(self):
         """Monitor thread that checks memory usage and takes appropriate actions."""
@@ -154,7 +154,7 @@ class MemoryMonitor:
                 process_memory = self.process.memory_info().rss / 1024 / 1024  # MB
                 
                 # Log memory usage every interval
-                logger.info(f"🧠 Memory usage: System {memory_percent:.1f}%, Process {process_memory:.1f}MB")
+                logger.info(f"[MEMORY] Memory usage: System {memory_percent:.1f}%, Process {process_memory:.1f}MB")
                 
                 # If memory usage is high AND we haven't run GC recently, trigger garbage collection
                 if (memory_percent > self.gc_threshold and 
@@ -168,40 +168,40 @@ class MemoryMonitor:
                     self.last_gc_time = current_time
                 
             except Exception as e:
-                logger.error(f"❌ Memory monitor error: {e}")
+                logger.error(f"[ERROR] Memory monitor error: {e}")
                 
             time.sleep(self.check_interval)
     
     def force_garbage_collection(self):
         """Force Python garbage collection to free memory."""
-        logger.info("🧹 Memory threshold exceeded, forcing garbage collection")
+        logger.info("[CLEANUP] Memory threshold exceeded, forcing garbage collection")
         collected = gc.collect()
         unreachable = gc.garbage
-        logger.info(f"🧹 Garbage collection: {collected} objects collected, {len(unreachable)} unreachable objects")
+        logger.info(f"[CLEANUP] Garbage collection: {collected} objects collected, {len(unreachable)} unreachable objects")
         
     def handle_critical_memory(self):
         """Handle critical memory situation by taking aggressive actions."""
-        logger.warning("⚠️ CRITICAL MEMORY THRESHOLD EXCEEDED!")
+        logger.warning("[CRITICAL] CRITICAL MEMORY THRESHOLD EXCEEDED!")
         
         # Force more aggressive garbage collection
-        logger.info("🧹 Performing full garbage collection")
+        logger.info("[CLEANUP] Performing full garbage collection")
         gc.collect(2)  # Full collection
         
         # Clean up player resources if available
         if player:
             if hasattr(player, '_cleanup_resources'):
-                logger.info("🧹 Cleaning up all player resources")
+                logger.info("[CLEANUP] Cleaning up all player resources")
                 player._cleanup_resources("all")
                 
             # Clear any in-memory caches if they exist
             if hasattr(player, 'clear_cache'):
-                logger.info("🧹 Clearing player cache")
+                logger.info("[CLEANUP] Clearing player cache")
                 player.clear_cache()
         
         # Log memory after cleanup
         memory_percent = psutil.virtual_memory().percent
         process_memory = self.process.memory_info().rss / 1024 / 1024  # MB
-        logger.info(f"🧠 Memory after cleanup: System {memory_percent:.1f}%, Process {process_memory:.1f}MB")
+        logger.info(f"[MEMORY] Memory after cleanup: System {memory_percent:.1f}%, Process {process_memory:.1f}MB")
     
     def stop(self):
         """Stop the memory monitor."""
@@ -213,7 +213,7 @@ atexit.register(lambda: save_state(player.current_state() if player else {}))
 
 def signal_handler(sig, frame):
     """Handle termination signals gracefully."""
-    logger.info(f"🔴 Received signal {sig}, shutting down...")
+    logger.info(f"[SHUTDOWN] Received signal {sig}, shutting down...")
     shutdown_event.set()
     if player:
         player.cleanup()  # Clean up player resources properly
@@ -222,9 +222,9 @@ def signal_handler(sig, frame):
 
 def calculate_durations_background(player_instance):
     """Calculate durations for all tracks in a background thread."""
-    logger.info("🔍 Starting background duration calculation...")
+    logger.info("[INFO] Starting background duration calculation...")
     if not player_instance or not player_instance.track_list:
-        logger.warning("❌ Player or track list not available for duration calculation.")
+        logger.warning("[WARNING] Player or track list not available for duration calculation.")
         return
 
     # Use batch updates for better performance
@@ -242,18 +242,18 @@ def calculate_durations_background(player_instance):
                 # Periodically update cache in batches
                 if len(duration_updates) >= batch_size:
                     if song_cache.update_batch(duration_updates):
-                        logger.info(f"✅ Calculated duration for {index + 1}/{len(player_instance.track_list)} tracks...")
+                        logger.info(f"[OK] Calculated duration for {index + 1}/{len(player_instance.track_list)} tracks...")
                     duration_updates = {}  # Reset batch
                     
             except Exception as e:
-                logger.error(f"❌ Error calculating duration for {track['name']}: {e}")
+                logger.error(f"[ERROR] Error calculating duration for {track['name']}: {e}")
                 track['duration'] = -1  # Mark as error
     
     # Final batch update
     if duration_updates:
         song_cache.update_batch(duration_updates)
         
-    logger.info("✅ Background duration calculation finished.")
+    logger.info("[OK] Background duration calculation finished.")
 
 async def heartbeat_task(watchdog):
     """Task to periodically update the watchdog heartbeat."""
@@ -263,7 +263,7 @@ async def heartbeat_task(watchdog):
 
 def pygame_event_handler():
     """Thread to handle pygame events like song end."""
-    logger.info("✅ Pygame event handler thread started")
+    logger.info("[OK] Pygame event handler thread started")
     last_pos = 0
     idle_timeout = 180  # Release resources after 3 minutes of inactivity
     last_local_activity = time.time()
@@ -276,15 +276,19 @@ def pygame_event_handler():
             # Only process if the position was non-zero before (meaning a song was playing)
             if last_pos > 0:
                 current_song = player.track_list[player.current_index]['name']
-                logger.info(f"⏹️ Song ended: {current_song}")
-                print(f"\n▶️ Auto-changing song: {current_song} finished playing")
+                logger.info(f"[PLAYER] Song ended: {current_song}")
+                print(f"\n[PLAYER] Auto-changing song: {current_song} finished playing")
                 player.next()
                 next_song = player.track_list[player.current_index]['name']
-                print(f"▶️ Now playing: {next_song}\n")
+                print(f"[PLAYER] Now playing: {next_song}\n")
                 # Reset last_pos after processing
                 last_pos = 0
                 # Update activity time
                 last_local_activity = current_time
+                # Save state and broadcast to all connected clients
+                state = player.current_state()
+                save_state(state)
+                broadcast_state_change(state)
             
         # Track the current position for next loop
         if player and not player.paused and pygame.mixer.music.get_busy() == 1:
@@ -298,7 +302,7 @@ def pygame_event_handler():
         # Check for idle timeout - release resources if player has been inactive
         if player and current_time - last_activity > idle_timeout:
             if not pygame.mixer.music.get_busy() or player.paused:
-                logger.info("💤 Player idle - releasing unused resources")
+                logger.info("[IDLE] Player idle - releasing unused resources")
                 # Only release the next track resources, keep current track loaded
                 player._cleanup_resources("next")
                 # Don't release again for another timeout period
@@ -349,9 +353,9 @@ async def start_servers():
     if has_systemd:
         try:
             systemd.daemon.notify("READY=1")
-            logger.info("🔔 Notified systemd that service is ready")
+            logger.info("[OK] Notified systemd that service is ready")
         except Exception as e:
-            logger.error(f"❌ Failed to notify systemd ready status: {e}")
+            logger.error(f"[ERROR] Failed to notify systemd ready status: {e}")
     
     try:
         # Wait for shutdown event
@@ -362,15 +366,15 @@ async def start_servers():
         heartbeat_task_obj.cancel()
         ws_server.close()
         await ws_server.wait_closed()
-        logger.info("🔔 WebSocket server closed")
+        logger.info("[OK] WebSocket server closed")
         watchdog.stop()
         memory_monitor.stop()
-        logger.info("🔔 Watchdog and memory monitor stopped")
+        logger.info("[OK] Watchdog and memory monitor stopped")
         # Cleanup player resources
         if player:
             player.cleanup()
-        logger.info("🔔 Player resources cleaned up")
-        logger.info("🔔 Event processing stopped")
+        logger.info("[OK] Player resources cleaned up")
+        logger.info("[OK] Event processing stopped")
 
 if __name__ == "__main__":
     # Set up signal handlers
@@ -379,7 +383,7 @@ if __name__ == "__main__":
     
     # Enable garbage collection
     gc.enable()
-    logger.info("✅ Garbage collection enabled")
+    logger.info("[OK] Garbage collection enabled")
     
     # Initialize Pygame mixer *only* 
     try:
@@ -390,9 +394,9 @@ if __name__ == "__main__":
             channels=2,
             buffer=2048  # Smaller buffer = less memory, slightly higher CPU
         )
-        logger.info("✅ Pygame mixer initialized with optimized settings.")
+        logger.info("[OK] Pygame mixer initialized with optimized settings.")
     except pygame.error as e:
-        logger.error(f"❌ Failed to initialize Pygame mixer: {e}")
+        logger.error(f"[ERROR] Failed to initialize Pygame mixer: {e}")
         # Decide if you want to exit or continue without audio
         exit(1) # Exit if mixer fails
 
@@ -427,18 +431,24 @@ if __name__ == "__main__":
     # Load saved state if it exists
     saved_state = load_state()
     if saved_state:
+        # Load settings from saved state
         player.current_index = saved_state.get("current_index", 0)
-        player.paused = saved_state.get("paused", True)
         player.shuffle_on = saved_state.get("shuffle", False)
         vol = saved_state.get("volume", 0.5)
         pygame.mixer.music.set_volume(vol)
+        
+        # Always start unpaused, regardless of saved state
+        player.paused = False
+        
+        # Load track and start playing
         player.load_track(player.current_index)
-        if player.paused:
-            pygame.mixer.music.pause()
-        else:
-            pygame.mixer.music.play()
+        pygame.mixer.music.play()
     else:
+        # No saved state, start playing automatically
         pygame.mixer.music.set_volume(0.5)
+        player.paused = False
+        player.load_track(player.current_index)
+        pygame.mixer.music.play()
 
     # Start servers
     asyncio.run(start_servers()) 

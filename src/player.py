@@ -30,7 +30,7 @@ def get_duration(file_path):
             sound = pygame.mixer.Sound(file_path)
             return sound.get_length()
     except Exception as e:
-        logger.exception(f"❌ Error getting duration of {file_path}")
+        logger.exception(f"[ERROR] Error getting duration of {file_path}")
         return 0
 
 def get_audio_files(folder):
@@ -53,10 +53,10 @@ def get_audio_files(folder):
         DeprecationWarning, 
         stacklevel=2
     )
-    logger.warning("❗ Using legacy get_audio_files without caching. This is less efficient.")
+    logger.warning("WARNING: Using legacy get_audio_files without caching. This is less efficient.")
     valid_extensions = {'.mp3', '.wav', '.ogg'}
     files_list = []
-    logger.info(f"🔍 Scanning audio files in: {folder}")
+    logger.info(f"INFO: Scanning audio files in: {folder}")
     try:
         count = 0
         for file in os.listdir(folder):
@@ -69,11 +69,11 @@ def get_audio_files(folder):
                     "duration": None  # Initialize duration as None
                 })
                 count += 1
-        logger.info(f"✅ Found {count} audio files.")
+        logger.info(f"INFO: Found {count} audio files.")
     except FileNotFoundError:
-        logger.error(f"❌ Audio folder not found: {folder}")
+        logger.error(f"[ERROR] Audio folder not found: {folder}")
     except Exception as e:
-        logger.exception(f"❌ Error listing directory {folder}")
+        logger.exception(f"[ERROR] Error listing directory {folder}")
     return files_list
 
 class PygamePlayer:
@@ -85,10 +85,10 @@ class PygamePlayer:
             track_list: List of dictionaries containing track information
         """
         if not track_list:
-            raise ValueError("❌ No audio files found in the specified folder.")
+            raise ValueError("ERROR: No audio files found in the specified folder.")
         self.track_list = track_list
         self.current_index = 0
-        self.paused = True
+        self.paused = False  # Start unpaused by default
         self.shuffle_on = False
         self._cache = {}  # Memory cache for player data
         self._max_cache_size = 5  # Maximum number of cached items
@@ -142,51 +142,51 @@ class PygamePlayer:
         """
         with self._preload_lock:
             if which in ["all", "current"]:
-                logger.debug("🧹 Cleaning up current track resources")
+                logger.debug("INFO: Cleaning up current track resources")
                 
                 # Clean up memory map if exists
                 if hasattr(self, '_current_mmap') and self._current_mmap:
                     try:
                         self._current_mmap.close()
-                        logger.debug("🧹 Closed current memory map")
+                        logger.debug("INFO: Closed current memory map")
                     except Exception as e:
-                        logger.error(f"❌ Error closing current memory map: {e}")
+                        logger.error(f"[ERROR] Error closing current memory map: {e}")
                     self._current_mmap = None
                     
                 # Clean up file handle if exists
                 if hasattr(self, '_current_file') and self._current_file:
                     try:
                         self._current_file.close()
-                        logger.debug("🧹 Closed current file handle")
+                        logger.debug("INFO: Closed current file handle")
                     except Exception as e:
-                        logger.error(f"❌ Error closing current file handle: {e}")
+                        logger.error(f"[ERROR] Error closing current file handle: {e}")
                     self._current_file = None
             
             if which in ["all", "next"]:
-                logger.debug("🧹 Cleaning up next track resources")
+                logger.debug("INFO: Cleaning up next track resources")
                 
                 # Clean up next track resources
                 if hasattr(self, '_next_mmap') and self._next_mmap:
                     try:
                         self._next_mmap.close()
-                        logger.debug("🧹 Closed next track memory map")
+                        logger.debug("INFO: Closed next track memory map")
                     except Exception as e:
-                        logger.error(f"❌ Error closing next track memory map: {e}")
+                        logger.error(f"[ERROR] Error closing next track memory map: {e}")
                     self._next_mmap = None
                 
                 if hasattr(self, '_next_file') and self._next_file:
                     try:
                         self._next_file.close()
-                        logger.debug("🧹 Closed next track file handle")
+                        logger.debug("INFO: Closed next track file handle")
                     except Exception as e:
-                        logger.error(f"❌ Error closing next track file handle: {e}")
+                        logger.error(f"[ERROR] Error closing next track file handle: {e}")
                     self._next_file = None
                 
                 self._next_index = None
         
         # Suggest garbage collection after cleanup, but only occasionally
         if which == "all" and self._should_run_gc():
-            logger.debug("🧹 Running garbage collection after resource cleanup")
+            logger.debug("INFO: Running garbage collection after resource cleanup")
             gc.collect()
 
     def _use_preloaded_track(self):
@@ -209,7 +209,7 @@ class PygamePlayer:
                 self._next_mmap = None
                 self._next_index = None
                 
-                logger.info(f"✅ Using preloaded track: {self.track_list[self.current_index]['name']}")
+                logger.info(f"[OK] Using preloaded track: {self.track_list[self.current_index]['name']}")
                 return True
         
         return False
@@ -245,19 +245,19 @@ class PygamePlayer:
                     )
                     # Load from memory map
                     pygame.mixer.music.load(self._current_mmap)
-                    logger.info(f"✅ Loaded track with mmap: {self.track_list[index]['name']}")
+                    logger.info(f"[OK] Loaded track with mmap: {self.track_list[index]['name']}")
                 except Exception as e:
                     # Fallback to standard loading if memory mapping fails
-                    logger.warning(f"⚠️ Mmap loading failed, using standard: {e}")
+                    logger.warning(f"[WARNING] Mmap loading failed, using standard: {e}")
                     self._cleanup_resources("current")  # Clean up failed resources
                     pygame.mixer.music.load(current_path)
-                    logger.info(f"✅ Loaded track with standard method: {self.track_list[index]['name']}")
+                    logger.info(f"[OK] Loaded track with standard method: {self.track_list[index]['name']}")
             
             # After loading current track, preload the next track in background
             self._preload_next_track()
                 
         except Exception as e:
-            logger.error(f"❌ Error loading track {self.track_list[index]['name']}: {e}")
+            logger.error(f"[ERROR] Error loading track {self.track_list[index]['name']}: {e}")
 
     def _preload_next_track(self):
         """Preload the next track in a background thread for smoother transitions"""
@@ -310,19 +310,19 @@ class PygamePlayer:
                         access=mmap.ACCESS_READ
                     )
                     self._next_index = next_index
-                    logger.info(f"✅ Preloaded next track: {self.track_list[next_index]['name']}")
+                    logger.info(f"[OK] Preloaded next track: {self.track_list[next_index]['name']}")
                 except Exception as e:
-                    logger.warning(f"⚠️ Failed to preload next track: {e}")
+                    logger.warning(f"[WARNING] Failed to preload next track: {e}")
                     # Clean up any partially loaded resources
                     self._cleanup_resources("next")
         except Exception as e:
-            logger.error(f"❌ Error in preload thread: {e}")
+            logger.error(f"[ERROR] Error in preload thread: {e}")
 
     def _manage_cache(self):
         """Manage cache size to prevent memory issues"""
         # If cache exceeds max size, clear oldest items
         if len(self._cache) > self._max_cache_size:
-            logger.info(f"🧹 Clearing audio cache (size: {len(self._cache)})")
+            logger.info(f"INFO: Clearing audio cache (size: {len(self._cache)})")
             # Keep only the most recent half of items
             keep_count = max(2, self._max_cache_size // 2)
             keys_to_remove = list(self._cache.keys())[:-keep_count]
@@ -331,13 +331,13 @@ class PygamePlayer:
             
             # Only run garbage collection occasionally
             if self._should_run_gc():
-                logger.debug("🧹 Running garbage collection after cache cleanup")
+                logger.debug("INFO: Running garbage collection after cache cleanup")
                 gc.collect()
             
     def clear_cache(self):
         """Clear the entire cache to free memory"""
         if self._cache:
-            logger.info(f"🧹 Clearing entire audio cache (size: {len(self._cache)})")
+            logger.info(f"INFO: Clearing entire audio cache (size: {len(self._cache)})")
             self._cache.clear()
             
             # Always run GC after a full cache clear
@@ -359,18 +359,30 @@ class PygamePlayer:
 
     def play(self):
         """Play or resume playback"""
-        if not pygame.mixer.music.get_busy():
+        if self.paused:
+            # Track is paused, unpause it
+            pygame.mixer.music.unpause()
+            # Check if unpausing worked by seeing if music is now playing
+            if not pygame.mixer.music.get_busy():
+                # Unpausing didn't work, reload and start the track
+                self.load_track(self.current_index)
+                self.start_track()
+            else:
+                # Unpausing worked, update paused state
+                self.paused = False
+        else:
+            # Track wasn't paused, load and start it
             self.load_track(self.current_index)
             self.start_track()
-        elif self.paused:
-            pygame.mixer.music.unpause()
-            self.paused = False
 
     def pause(self):
+        """Toggle pause state"""
         if self.paused:
+            # If currently paused, unpause
             pygame.mixer.music.unpause()
             self.paused = False
         else:
+            # If currently playing, pause
             pygame.mixer.music.pause()
             self.paused = True
 
@@ -442,10 +454,10 @@ class PygamePlayer:
             index: Index of track to delete
         """
         if index < 0 or index >= len(self.track_list):
-            raise IndexError("❌ Invalid track index")
+            raise IndexError("ERROR: Invalid track index")
         song = self.track_list[index]
         if not os.path.exists(song['path']):
-            raise FileNotFoundError(f"❌ File not found: {song['path']}")
+            raise FileNotFoundError(f"ERROR: File not found: {song['path']}")
         try:
             # If the current track is being deleted, move to the next track if available.
             if index == self.current_index:
@@ -461,7 +473,7 @@ class PygamePlayer:
             if self.current_index >= len(self.track_list):
                 self.current_index = 0
         except Exception as e:
-            logger.error(f"❌ Error deleting track {song['name']}: {e}")
+            logger.error(f"[ERROR] Error deleting track {song['name']}: {e}")
             raise
     
     def current_state(self):
@@ -481,7 +493,7 @@ class PygamePlayer:
         
     def cleanup(self):
         """Clean up all resources when app is shutting down"""
-        logger.info("🧹 Performing final player cleanup")
+        logger.info("INFO: Performing final player cleanup")
         self._cleanup_resources("all")
         self.clear_cache()
         try:
