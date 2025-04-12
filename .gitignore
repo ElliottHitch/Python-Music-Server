@@ -14,6 +14,7 @@ src/app.log
 
 # State files
 src/state.json
+src/song_cache.json
 
 # IDE files
 .vscode/
