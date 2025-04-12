@@ -11,24 +11,36 @@ logger = logging.getLogger(__name__)
 CONFIG_FILE = os.path.join("static", "config.json")
 STATE_FILE = os.path.join("src", "state.json")
 
+# Check if running in a headless environment
+def is_headless():
+    return not os.environ.get('DISPLAY')
+
 # Initialize config file with folder selection
 def initialize_config():
     if not os.path.exists(CONFIG_FILE):
         # Create static directory if it doesn't exist
         os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
         
-        # Show folder selection dialog
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
-        root.attributes("-topmost", True)  # Bring dialog to front
+        folder_path = ""
         
-        print("Please select your music folder...")
-        folder_path = filedialog.askdirectory(title="Select Music Folder")
+        # If not headless, show GUI dialog
+        if not is_headless():
+            try:
+                # Show folder selection dialog
+                root = tk.Tk()
+                root.withdraw()  # Hide the main window
+                root.attributes("-topmost", True)  # Bring dialog to front
+                
+                print("Please select your music folder...")
+                folder_path = filedialog.askdirectory(title="Select Music Folder")
+            except tk.TclError:
+                print("Cannot open display window. Running in headless mode.")
+                folder_path = ""
         
-        # If user cancels, use a default path in Music folder
+        # If headless or user cancels, use a default path in Music folder
         if not folder_path:
             folder_path = os.path.join(os.path.expanduser("~"), "Music")
-            print(f"No folder selected. Using default: {folder_path}")
+            print(f"Using default music folder: {folder_path}")
         else:
             print(f"Selected folder: {folder_path}")
             # Convert to Windows path format with double backslashes for JSON

@@ -1,6 +1,8 @@
-# RPI Music Player
+# Python Music Server
 
-A web-based music player application for Raspberry Pi and standard computers.
+A web-based music player application made for Raspberry Pi.
+The backend maintains the player state and audio output.
+The front end allows playback control over network through browser.
 
 ### Setup Instructions
 
