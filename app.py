@@ -55,7 +55,7 @@ class Watchdog:
     def start(self):
         """Start the watchdog monitor thread."""
         self.thread.start()
-        logger.info("Watchdog monitor started")
+        logger.info("✅ Watchdog monitor started")
         
     def heartbeat(self):
         """Update the heartbeat timestamp."""
@@ -65,7 +65,7 @@ class Watchdog:
             try:
                 systemd.daemon.notify("WATCHDOG=1")
             except Exception as e:
-                logger.error(f"Failed to notify systemd watchdog: {e}")
+                logger.error(f"❌ Failed to notify systemd watchdog: {e}")
         
     def _monitor(self):
         """Monitor thread that checks for system health."""
@@ -74,18 +74,18 @@ class Watchdog:
             
             # If no heartbeat for more than 2x the interval, restart
             if time_since_heartbeat > (self.check_interval * 2):
-                logger.error(f"Watchdog detected no heartbeat for {time_since_heartbeat:.1f} seconds. Restarting application...")
+                logger.error(f"❌ Watchdog detected no heartbeat for {time_since_heartbeat:.1f} seconds. Restarting application...")
                 self._restart_application()
                 return
                 
             # Check other critical components
             try:
                 if player and not pygame.mixer.get_init():
-                    logger.error("Watchdog detected pygame mixer failure. Restarting application...")
+                    logger.error("❌ Watchdog detected pygame mixer failure. Restarting application...")
                     self._restart_application()
                     return
             except Exception as e:
-                logger.error(f"Watchdog error during health check: {e}")
+                logger.error(f"❌ Watchdog error during health check: {e}")
                 
             time.sleep(self.check_interval)
             
@@ -96,7 +96,7 @@ class Watchdog:
             return
             
         restart_in_progress = True
-        logger.info("Initiating application restart...")
+        logger.info("🔄 Initiating application restart...")
         
         # Save state before restarting
         if player:
@@ -106,7 +106,7 @@ class Watchdog:
         try:
             os.execv(sys.executable, ['python'] + sys.argv)
         except Exception as e:
-            logger.error(f"Failed to restart application: {e}")
+            logger.error(f"❌ Failed to restart application: {e}")
             # If we can't restart, exit and let the external watchdog handle it
             os._exit(1)
     
@@ -119,7 +119,7 @@ atexit.register(lambda: save_state(player.current_state() if player else {}))
 
 def signal_handler(sig, frame):
     """Handle termination signals gracefully."""
-    logger.info(f"Received signal {sig}, shutting down...")
+    logger.info(f"🔴 Received signal {sig}, shutting down...")
     shutdown_event.set()
     if player:
         save_state(player.current_state())
@@ -127,9 +127,9 @@ def signal_handler(sig, frame):
 
 def calculate_durations_background(player_instance):
     """Calculate durations for all tracks in a background thread."""
-    logger.info("Starting background duration calculation...")
+    logger.info("🔍 Starting background duration calculation...")
     if not player_instance or not player_instance.track_list:
-        logger.warning("Player or track list not available for duration calculation.")
+        logger.warning("❌ Player or track list not available for duration calculation.")
         return
 
     for index, track in enumerate(player_instance.track_list):
@@ -138,18 +138,42 @@ def calculate_durations_background(player_instance):
                 track['duration'] = get_duration(track['path'])
                 # Optional: Log progress every N tracks
                 if (index + 1) % 50 == 0:
-                     logger.info(f"Calculated duration for {index + 1}/{len(player_instance.track_list)} tracks...")
+                    logger.info(f"✅ Calculated duration for {index + 1}/{len(player_instance.track_list)} tracks...")
             except Exception as e:
-                logger.error(f"Error calculating duration for {track['name']}: {e}")
+                logger.error(f"❌ Error calculating duration for {track['name']}: {e}")
                 track['duration'] = -1 # Mark as error 
 
-    logger.info("Background duration calculation finished.")
+    logger.info("✅ Background duration calculation finished.")
 
 async def heartbeat_task(watchdog):
     """Task to periodically update the watchdog heartbeat."""
     while not shutdown_event.is_set():
         watchdog.heartbeat()
         await asyncio.sleep(15)  # Update heartbeat every 15 seconds
+
+def pygame_event_handler():
+    """Thread to handle pygame events like song end."""
+    logger.info("✅ Pygame event handler thread started")
+    last_pos = 0
+    while not shutdown_event.is_set():
+        # Check if music has stopped playing
+        if player and not player.paused and pygame.mixer.music.get_busy() == 0:
+            # Only process if the position was non-zero before (meaning a song was playing)
+            if last_pos > 0:
+                current_song = player.track_list[player.current_index]['name']
+                logger.info(f"⏹️ Song ended: {current_song}")
+                print(f"\n▶️ Auto-changing song: {current_song} finished playing")
+                player.next()
+                next_song = player.track_list[player.current_index]['name']
+                print(f"▶️ Now playing: {next_song}\n")
+                # Reset last_pos after processing
+                last_pos = 0
+            
+        # Track the current position for next loop
+        if player and not player.paused and pygame.mixer.music.get_busy() == 1:
+            last_pos = pygame.mixer.music.get_pos()
+            
+        time.sleep(0.1)  # Short sleep to prevent high CPU usage
 
 async def start_servers():
     """Start WebSocket and Flask servers"""
@@ -159,6 +183,10 @@ async def start_servers():
     
     # Create heartbeat task
     heartbeat_task_obj = asyncio.create_task(heartbeat_task(watchdog))
+    
+    # Start pygame event handler thread
+    event_thread = threading.Thread(target=pygame_event_handler, daemon=True)
+    event_thread.start()
     
     ws_server = await websockets.serve(
         lambda ws, path: websocket_handler(ws, player, save_state),
@@ -178,9 +206,9 @@ async def start_servers():
     if has_systemd:
         try:
             systemd.daemon.notify("READY=1")
-            logger.info("Notified systemd that service is ready")
+            logger.info("🔔 Notified systemd that service is ready")
         except Exception as e:
-            logger.error(f"Failed to notify systemd ready status: {e}")
+            logger.error(f"❌ Failed to notify systemd ready status: {e}")
     
     try:
         # Wait for shutdown event
@@ -191,7 +219,10 @@ async def start_servers():
         heartbeat_task_obj.cancel()
         ws_server.close()
         await ws_server.wait_closed()
+        logger.info("🔔 WebSocket server closed")
         watchdog.stop()
+        logger.info("🔔 Watchdog stopped")
+        logger.info("🔔 Event processing stopped")
 
 if __name__ == "__main__":
     # Set up signal handlers
@@ -201,9 +232,9 @@ if __name__ == "__main__":
     # Initialize Pygame mixer *only* 
     try:
         pygame.mixer.init()
-        logger.info("Pygame mixer initialized.")
+        logger.info("✅ Pygame mixer initialized.")
     except pygame.error as e:
-        logger.error(f"Failed to initialize Pygame mixer: {e}")
+        logger.error(f"❌ Failed to initialize Pygame mixer: {e}")
         # Decide if you want to exit or continue without audio
         exit(1) # Exit if mixer fails
 

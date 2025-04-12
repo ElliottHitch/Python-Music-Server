@@ -54,11 +54,11 @@ async def websocket_handler(websocket, player, save_state_callback):
                     }))
                     continue
                 except Exception as e:
-                    logger.error(f"Error processing delete command: {e}")
+                    logger.error(f"❌ Error processing delete command: {e}")
                     await websocket.send(json.dumps({"message": f"Error deleting song: {str(e)}"}))
                     continue
             else:
-                logger.warning(f"Unknown command received: {command}")
+                logger.warning(f"❌ Unknown command received: {command}")
                 await websocket.send(json.dumps({"message": "Unknown command"}))
                 continue
                 
@@ -68,4 +68,4 @@ async def websocket_handler(websocket, player, save_state_callback):
                 
             await websocket.send(json.dumps({"state": player.current_state()}))
         except Exception as e:
-            logger.error(f"Error in websocket handler: {e}") 
+            logger.error(f"❌ Error in websocket handler: {e}") 

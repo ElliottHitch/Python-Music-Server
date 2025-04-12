@@ -22,13 +22,13 @@ def get_duration(file_path):
             sound = pygame.mixer.Sound(file_path)
             return sound.get_length()
     except Exception as e:
-        logger.exception(f"Error getting duration of {file_path}")
+        logger.exception(f"❌ Error getting duration of {file_path}")
         return 0
 
 def get_audio_files(folder):
     valid_extensions = {'.mp3', '.wav', '.ogg'}
     files_list = []
-    logger.info(f"Scanning audio files in: {folder}")
+    logger.info(f"🔍 Scanning audio files in: {folder}")
     try:
         count = 0
         for file in os.listdir(folder):
@@ -41,17 +41,17 @@ def get_audio_files(folder):
                     "duration": None  # Initialize duration as None
                 })
                 count += 1
-        logger.info(f"Found {count} audio files.")
+        logger.info(f"✅ Found {count} audio files.")
     except FileNotFoundError:
-        logger.error(f"Audio folder not found: {folder}")
+        logger.error(f"❌ Audio folder not found: {folder}")
     except Exception as e:
-        logger.exception(f"Error listing directory {folder}")
+        logger.exception(f"❌ Error listing directory {folder}")
     return files_list
 
 class PygamePlayer:
     def __init__(self, track_list):
         if not track_list:
-            raise ValueError("No audio files found in the specified folder.")
+            raise ValueError("❌ No audio files found in the specified folder.")
         self.track_list = track_list
         self.current_index = 0
         self.paused = True
@@ -61,9 +61,9 @@ class PygamePlayer:
     def load_track(self, index):
         try:
             pygame.mixer.music.load(self.track_list[index]['path'])
-            pygame.mixer.music.set_endevent(pygame.USEREVENT)
+            logger.info(f"✅ Loaded track: {self.track_list[index]['name']}")
         except Exception as e:
-            logger.error(f"Error loading track {self.track_list[index]['name']}: {e}")
+            logger.error(f"❌ Error loading track {self.track_list[index]['name']}: {e}")
 
     def start_track(self):
         pygame.mixer.music.play()
@@ -120,10 +120,10 @@ class PygamePlayer:
 
     def delete_track(self, index):
         if index < 0 or index >= len(self.track_list):
-            raise IndexError("Invalid track index")
+            raise IndexError("❌ Invalid track index")
         song = self.track_list[index]
         if not os.path.exists(song['path']):
-            raise FileNotFoundError(f"File not found: {song['path']}")
+            raise FileNotFoundError(f"❌ File not found: {song['path']}")
         try:
             # If the current track is being deleted, move to the next track if available.
             if index == self.current_index:
@@ -139,7 +139,7 @@ class PygamePlayer:
             if self.current_index >= len(self.track_list):
                 self.current_index = 0
         except Exception as e:
-            logger.error(f"Error deleting track {song['name']}: {e}")
+            logger.error(f"❌ Error deleting track {song['name']}: {e}")
             raise
     
     def current_state(self):

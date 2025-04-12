@@ -27,6 +27,9 @@ Thumbs.db
 # Config that might contain sensitive info
 config.json
 
+# Service files
+rpi_music_player.service
+
 # Distribution / packaging
 dist/
 build/

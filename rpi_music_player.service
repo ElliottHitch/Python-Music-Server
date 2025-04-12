@@ -4,11 +4,11 @@ After=network.target
 
 [Service]
 Type=simple
-# Change "pi" to your actual username
-User=pi
-# Change to the full path of your application directory
-WorkingDirectory=/path/to/your/music/player
-# Change to the correct path to your Python executable (use 'which python' to find it)
+# User that will run the service
+User=el
+# Full path to your application directory
+WorkingDirectory=/home/el/Documents/Python-Music-Server
+# Path to the Python executable
 ExecStart=/usr/bin/python app.py
 Restart=always
 RestartSec=5
@@ -17,7 +17,7 @@ WatchdogSec=60
 # Enable watchdog notification from the application
 NotifyAccess=main
 
-# Add any environment variables your application needs here
+# Environment variables if needed
 # Environment=VARIABLE=value
 
 [Install]
