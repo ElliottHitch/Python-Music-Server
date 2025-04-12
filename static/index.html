@@ -9,7 +9,11 @@
     let isPaused = true;
     let songs = [];
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${wsProtocol}://${window.location.hostname}:8765`;
+    const wsPort = 8765;
+    const wsUrl = `${wsProtocol}://${window.location.hostname}:${wsPort}`;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    const reconnectInterval = 5000; // 5 seconds
 
     // Connect to the websocket server.
     const connectWebSocket = () => {
@@ -21,6 +25,7 @@
       websocket.onopen = () => {
         console.log("Connected to WebSocket server");
         setStatus("Connected to WebSocket server", 2000);
+        reconnectAttempts = 0; // Reset reconnect attempts on successful connection
       };
       
       websocket.onmessage = event => {
@@ -46,10 +51,16 @@
         setStatus(`WebSocket Error: Cannot connect to ${wsUrl}. Check console for details.`, 0);
       };
       
-      websocket.onclose = () => {
-        console.log("WebSocket closed. Reconnecting in 5 seconds...");
-        setStatus("WebSocket closed. Reconnecting in 5 seconds...", 5000);
-        setTimeout(connectWebSocket, 5000);
+      websocket.onclose = (event) => {
+        console.log(`WebSocket closed (code: ${event.code}). Reconnecting in 5 seconds...`);
+        
+        if (reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          setStatus(`WebSocket closed. Reconnecting in 5 seconds... (Attempt ${reconnectAttempts}/${maxReconnectAttempts})`, reconnectInterval);
+          setTimeout(connectWebSocket, reconnectInterval);
+        } else {
+          setStatus("Failed to connect to WebSocket server after multiple attempts. Please refresh the page.", 0);
+        }
       };
     };
 

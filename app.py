@@ -199,7 +199,13 @@ async def start_servers():
     # Start Flask in a separate thread but don't await it
     # since app.run() blocks until the server stops
     loop = asyncio.get_running_loop()
-    flask_thread = loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=5000, use_reloader=False))
+    flask_thread = loop.run_in_executor(None, lambda: app.run(
+        host="0.0.0.0", 
+        port=5000, 
+        debug=False, 
+        use_reloader=False,
+        threaded=True
+    ))
     
     # Update heartbeat after servers are started
     watchdog.heartbeat()
