@@ -2,10 +2,8 @@ import os
 import random
 import logging
 import pygame
-import mmap
 import gc
 import threading
-from mutagen.mp3 import MP3
 import time
 
 logger = logging.getLogger(__name__)
@@ -18,20 +16,15 @@ def format_duration(seconds):
     return f"{minutes}:{secs:02d}"
 
 def get_duration(file_path):
-    """
-    Calculate the duration of an audio file.
-    This is an expensive operation that should be cached.
-    """
+    """Get audio file duration in seconds"""
     try:
-        if file_path.lower().endswith('.mp3'):
-            audio = MP3(file_path)
-            return audio.info.length
-        else:
-            sound = pygame.mixer.Sound(file_path)
-            return sound.get_length()
+        # Fast duration check for mp3
+        sound = pygame.mixer.Sound(file_path)
+        duration = sound.get_length()  # in seconds
+        return duration
     except Exception as e:
-        logger.exception(f"[ERROR] Error getting duration of {file_path}")
-        return 0
+        logger.warning(f"[WARNING] Failed to get duration for {file_path}: {e}")
+        return None
 
 class PygamePlayer:
     def __init__(self, track_list):
@@ -55,16 +48,6 @@ class PygamePlayer:
         # Garbage collection tracking
         self._cleanup_count = 0
         self._last_gc_time = time.time()
-        
-        # Track resources for proper cleanup
-        self._current_file = None
-        self._current_mmap = None
-        
-        # Next track preloading
-        self._next_file = None
-        self._next_mmap = None
-        self._next_index = None
-        self._preload_lock = threading.RLock()  # Thread safety for preloading
         
         # Load first track
         self.load_track(self.current_index)
@@ -92,188 +75,43 @@ class PygamePlayer:
 
     def _cleanup_resources(self, which="all"):
         """
-        Properly clean up file resources
+        Clean up file resources
         
         Args:
-            which: What to clean up - "all", "current", or "next"
+            which: What to clean up - "all", "current", or "next" (simplified version)
         """
-        with self._preload_lock:
-            if which in ["all", "current"]:
-                logger.debug("INFO: Cleaning up current track resources")
-                
-                # Clean up memory map if exists
-                if hasattr(self, '_current_mmap') and self._current_mmap:
-                    try:
-                        self._current_mmap.close()
-                        logger.debug("INFO: Closed current memory map")
-                    except Exception as e:
-                        logger.error(f"[ERROR] Error closing current memory map: {e}")
-                    self._current_mmap = None
-                    
-                # Clean up file handle if exists
-                if hasattr(self, '_current_file') and self._current_file:
-                    try:
-                        self._current_file.close()
-                        logger.debug("INFO: Closed current file handle")
-                    except Exception as e:
-                        logger.error(f"[ERROR] Error closing current file handle: {e}")
-                    self._current_file = None
-            
-            if which in ["all", "next"]:
-                logger.debug("INFO: Cleaning up next track resources")
-                
-                # Clean up next track resources
-                if hasattr(self, '_next_mmap') and self._next_mmap:
-                    try:
-                        self._next_mmap.close()
-                        logger.debug("INFO: Closed next track memory map")
-                    except Exception as e:
-                        logger.error(f"[ERROR] Error closing next track memory map: {e}")
-                    self._next_mmap = None
-                
-                if hasattr(self, '_next_file') and self._next_file:
-                    try:
-                        self._next_file.close()
-                        logger.debug("INFO: Closed next track file handle")
-                    except Exception as e:
-                        logger.error(f"[ERROR] Error closing next track file handle: {e}")
-                    self._next_file = None
-                
-                self._next_index = None
+        # We've simplified to direct file loading, so less cleanup needed
+        # Just log the cleanup for tracking
+        logger.debug(f"INFO: Cleanup requested ({which})")
         
         # Suggest garbage collection after cleanup, but only occasionally
         if which == "all" and self._should_run_gc():
             logger.debug("INFO: Running garbage collection after resource cleanup")
             gc.collect()
 
-    def _use_preloaded_track(self):
-        """Check if there's a preloaded track ready to use for the current index"""
-        with self._preload_lock:
-            # If we have a preloaded track matching the current index
-            if (self._next_index == self.current_index and 
-                self._next_file is not None and 
-                self._next_mmap is not None):
-                    
-                # Clean up any existing current track
-                self._cleanup_resources("current")
-                
-                # Move preloaded track to current
-                self._current_file = self._next_file
-                self._current_mmap = self._next_mmap
-                
-                # Reset preload placeholders
-                self._next_file = None
-                self._next_mmap = None
-                self._next_index = None
-                
-                logger.info(f"[OK] Using preloaded track: {self.track_list[self.current_index]['name']}")
-                return True
-        
-        return False
-
     def load_track(self, index):
         """Load track at the specified index"""
         try:
-            # Check if the requested track is already preloaded
-            if not self._use_preloaded_track():
-                # Clean up current track resources (but keep next track preloaded)
-                self._cleanup_resources("current")
-                
-                # Clear pygame mixer if it's already initialized to free memory
-                if pygame.mixer.music.get_busy():
-                    pygame.mixer.music.stop()
-                    
-                # Track loading - check if we've exceeded reasonable memory usage
-                self._manage_cache()
-                
-                # Keep track of path for cache management
-                current_path = self.track_list[index]['path']
-                self._cache[current_path] = True  # Mark as recently used
-                
-                # Try loading with memory mapping for better memory efficiency
-                try:
-                    # Open the file
-                    self._current_file = open(current_path, 'rb')
-                    # Create memory map
-                    self._current_mmap = mmap.mmap(
-                        self._current_file.fileno(), 
-                        0,  # Whole file
-                        access=mmap.ACCESS_READ
-                    )
-                    # Load from memory map
-                    pygame.mixer.music.load(self._current_mmap)
-                    logger.info(f"[OK] Loaded track with mmap: {self.track_list[index]['name']}")
-                except Exception as e:
-                    # Fallback to standard loading if memory mapping fails
-                    logger.warning(f"[WARNING] Mmap loading failed, using standard: {e}")
-                    self._cleanup_resources("current")  # Clean up failed resources
-                    pygame.mixer.music.load(current_path)
-                    logger.info(f"[OK] Loaded track with standard method: {self.track_list[index]['name']}")
+            # Clean up any existing resources before loading new track
+            self._cleanup_resources("all")
             
-            # After loading current track, preload the next track in background
-            self._preload_next_track()
+            # Clear pygame mixer if it's already initialized to free memory
+            if pygame.mixer.music.get_busy():
+                pygame.mixer.music.stop()
+                
+            # Track loading - check if we've exceeded reasonable memory usage
+            self._manage_cache()
+            
+            # Keep track of path for cache management
+            current_path = self.track_list[index]['path']
+            self._cache[current_path] = True  # Mark as recently used
+            
+            # Use direct file loading for reliability
+            pygame.mixer.music.load(current_path)
+            logger.info(f"[OK] Loaded track: {self.track_list[index]['name']}")
                 
         except Exception as e:
             logger.error(f"[ERROR] Error loading track {self.track_list[index]['name']}: {e}")
-
-    def _preload_next_track(self):
-        """Preload the next track in a background thread for smoother transitions"""
-        # Don't block the main thread for preloading
-        preload_thread = threading.Thread(
-            target=self._do_preload_next_track,
-            daemon=True
-        )
-        preload_thread.start()
-    
-    def _do_preload_next_track(self):
-        """Actually do the preloading work in a separate thread"""
-        try:
-            with self._preload_lock:
-                # If already preloaded or no tracks, skip
-                if self._next_mmap is not None or len(self.track_list) <= 1:
-                    return
-                
-                # Determine next track index based on shuffle mode
-                if self.shuffle_on:
-                    # Use our intelligent shuffle algorithm to determine next track
-                    available_indices = [i for i in range(len(self.track_list)) 
-                                      if i != self.current_index and 
-                                         i not in self.last_played[-min(len(self.last_played), 3):]]
-                    
-                    if available_indices:
-                        next_index = random.choice(available_indices)
-                    else:
-                        next_index = (self.current_index + 1) % len(self.track_list)
-                else:
-                    # Sequential playback
-                    next_index = (self.current_index + 1) % len(self.track_list)
-                
-                # Don't preload if it's the same as current (single track playlist)
-                if next_index == self.current_index:
-                    return
-                
-                # Get the path of the next track
-                next_path = self.track_list[next_index]['path']
-                
-                # Clean up any existing next track resources
-                self._cleanup_resources("next")
-                
-                # Preload the next track with memory mapping
-                try:
-                    self._next_file = open(next_path, 'rb')
-                    self._next_mmap = mmap.mmap(
-                        self._next_file.fileno(),
-                        0,
-                        access=mmap.ACCESS_READ
-                    )
-                    self._next_index = next_index
-                    logger.info(f"[OK] Preloaded next track: {self.track_list[next_index]['name']}")
-                except Exception as e:
-                    logger.warning(f"[WARNING] Failed to preload next track: {e}")
-                    # Clean up any partially loaded resources
-                    self._cleanup_resources("next")
-        except Exception as e:
-            logger.error(f"[ERROR] Error in preload thread: {e}")
 
     def _manage_cache(self):
         """Manage cache size to prevent memory issues"""
@@ -365,25 +203,18 @@ class PygamePlayer:
         # Load and start the next track    
         self.load_track(self.current_index)
         self.start_track()
-        
-        # Preload the next track after starting this one
-        self._preload_next_track()
 
     def back(self):
         """Go to the previous track in the playlist"""
         self.current_index = (self.current_index - 1) % len(self.track_list)
         self.load_track(self.current_index)
         self.start_track()
-        # Preload the next track after going back
-        self._preload_next_track()
 
     def play_track(self, index):
         """Play a specific track by index"""
         self.current_index = index
         self.load_track(self.current_index)
         self.start_track()
-        # Preload the next track after selecting specific track
-        self._preload_next_track()
 
     def set_volume(self, volume):
         """Set playback volume (0.0 to 1.0)"""
@@ -400,8 +231,6 @@ class PygamePlayer:
     def toggle_shuffle(self):
         """Toggle shuffle mode on/off"""
         self.shuffle_on = not self.shuffle_on
-        # Preload next track with new shuffle setting
-        self._preload_next_track()
 
     def delete_track(self, index):
         """

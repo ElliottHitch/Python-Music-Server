@@ -328,7 +328,14 @@ def pygame_event_handler():
                 # Save state and broadcast to all connected clients
                 state = player.current_state()
                 save_state(state)
-                broadcast_state_change(state)
+                
+                # Create a new event loop for this thread and use it to broadcast state
+                try:
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    new_loop.run_until_complete(async_broadcast_state(state))
+                except Exception as e:
+                    logger.error(f"[ERROR] Failed to broadcast state change: {e}")
             
         # Track the current position for next loop
         if player and not player.paused and pygame.mixer.music.get_busy() == 1:
@@ -343,12 +350,19 @@ def pygame_event_handler():
         if player and current_time - last_activity > idle_timeout:
             if not pygame.mixer.music.get_busy() or player.paused:
                 logger.info("[IDLE] Player idle - releasing unused resources")
-                # Only release the next track resources, keep current track loaded
-                player._cleanup_resources("next")
+                # Release resources when idle
+                player._cleanup_resources("all")
                 # Don't release again for another timeout period
                 last_local_activity = current_time
             
         time.sleep(0.1)  # Short sleep to prevent high CPU usage
+
+# Add a new async function to handle broadcasting state changes
+async def async_broadcast_state(state):
+    """Async wrapper for broadcast_state_change that ensures proper event loop usage."""
+    # Make a copy to avoid any potential thread safety issues
+    state_copy = state.copy() if state else {}
+    broadcast_state_change(state_copy)
 
 async def start_servers():
     """Start WebSocket and Flask servers"""
