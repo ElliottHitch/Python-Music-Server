@@ -79,7 +79,6 @@
     };
 
     const sendCommand = command => {
-      console.log("Sending command:", command);
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         websocket.send(command);
       } else {
@@ -109,7 +108,6 @@
 
     // Update UI based on received state.
     const updateUI = state => {
-      console.log("Updating UI with state:", state);
       document.getElementById('volumeSlider').value = state.volume;
       isPaused = state.paused;
       document.getElementById('playPauseIcon').src = state.paused ?
@@ -262,14 +260,13 @@
   <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.5">
   <div class="form-group">
       <input type="text" id="search" class="form-control" placeholder="Search for a song">
-      <!-- New delete button added next to the search box -->
       <button id="deleteButton">Delete</button>
   </div>
   <div class="table-container">
       <table id="songsTable">
           <thead>
               <tr>
-                  <th></th>
+                  <th>Songs</th>
               </tr>
           </thead>
           <tbody></tbody>

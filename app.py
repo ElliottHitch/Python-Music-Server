@@ -16,7 +16,7 @@ import json
 # Import from our modules
 from src.logger import setup_logger
 from src.config import load_config, load_state, save_state
-from src.player import PygamePlayer, get_audio_files, get_duration
+from src.player import PygamePlayer, get_duration
 from src.routes import setup_routes
 from src.websocket_handler import websocket_handler, get_last_websocket_activity, broadcast_state_change
 from src.song_cache import SongCache
@@ -254,9 +254,6 @@ def calculate_durations_background(player_instance):
     if duration_updates:
         song_cache.update_batch(duration_updates)
     
-    # Note: We no longer trigger normalization here. All normalization is
-    # centralized in the main function after player initialization.
-    
     logger.info("[OK] Background duration calculation finished.")
 
 def update_player_with_normalized_tracks(normalized_paths):
@@ -323,7 +320,6 @@ def pygame_event_handler():
             if last_pos > 0:
                 current_song = player.track_list[player.current_index]['name']
                 logger.info(f"[PLAYER] Song ended: {current_song}")
-                # Remove print statements for normal operation
                 player.next()
                 # Reset last_pos after processing
                 last_pos = 0
@@ -445,9 +441,6 @@ def get_audio_files_with_normalization(audio_folder, normalizer):
             normalized_files.append(file_info)
             files_to_normalize.append(original_path)
     
-    # We'll handle normalization in the main app after initializing the player
-    # to avoid duplicate normalization triggers
-    
     return normalized_files, files_to_normalize
 
 if __name__ == "__main__":
@@ -459,7 +452,7 @@ if __name__ == "__main__":
     gc.enable()
     logger.info("[OK] Garbage collection enabled")
     
-    # Initialize Pygame mixer *only* 
+    # Initialize Pygame mixer
     try:
         # Use smaller buffer size for better memory efficiency
         pygame.mixer.init(
@@ -471,8 +464,7 @@ if __name__ == "__main__":
         logger.info("[OK] Pygame mixer initialized with optimized settings.")
     except pygame.error as e:
         logger.error(f"[ERROR] Failed to initialize Pygame mixer: {e}")
-        # Decide if you want to exit or continue without audio
-        exit(1) # Exit if mixer fails
+        exit(1)
 
     # Initialize audio normalizer
     audio_normalizer = AudioNormalizer(AUDIO_FOLDER)
@@ -492,7 +484,6 @@ if __name__ == "__main__":
         exit(1)
 
     # Start normalizing files after player is initialized
-    # This centralizes all normalization to a single place
     if files_to_normalize:
         logger.info(f"[NORMALIZE] Starting normalization of {len(files_to_normalize)} files")
         audio_normalizer.normalize_files_background(files_to_normalize, callback=update_player_with_normalized_tracks)
@@ -501,7 +492,7 @@ if __name__ == "__main__":
     duration_thread = threading.Thread(
         target=calculate_durations_background, 
         args=(player,),
-        daemon=True # Allow program to exit even if this thread is running
+        daemon=True
     )
     duration_thread.start()
 
@@ -523,7 +514,6 @@ if __name__ == "__main__":
         vol = saved_state.get("volume", 0.5)
         pygame.mixer.music.set_volume(vol)
         
-        # Always start unpaused, regardless of saved state
         player.paused = False
         
         # Load track and start playing

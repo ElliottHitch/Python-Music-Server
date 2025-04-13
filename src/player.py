@@ -33,49 +33,6 @@ def get_duration(file_path):
         logger.exception(f"[ERROR] Error getting duration of {file_path}")
         return 0
 
-def get_audio_files(folder):
-    """
-    DEPRECATED: Legacy method to get audio files without caching.
-    
-    This function is kept for backward compatibility but should not be used in new code.
-    Use SongCache.get_cached_audio_files() instead which offers better performance
-    and resource management.
-    
-    Args:
-        folder: Path to the audio folder
-        
-    Returns:
-        List of audio file dictionaries with path, name, and duration fields
-    """
-    import warnings
-    warnings.warn(
-        "get_audio_files is deprecated. Use SongCache.get_cached_audio_files instead",
-        DeprecationWarning, 
-        stacklevel=2
-    )
-    logger.warning("WARNING: Using legacy get_audio_files without caching. This is less efficient.")
-    valid_extensions = {'.mp3', '.wav', '.ogg'}
-    files_list = []
-    logger.info(f"INFO: Scanning audio files in: {folder}")
-    try:
-        count = 0
-        for file in os.listdir(folder):
-            ext = os.path.splitext(file)[1].lower()
-            if ext in valid_extensions:
-                file_path = os.path.join(folder, file)
-                files_list.append({
-                    "path": file_path,
-                    "name": file,
-                    "duration": None  # Initialize duration as None
-                })
-                count += 1
-        logger.info(f"INFO: Found {count} audio files.")
-    except FileNotFoundError:
-        logger.error(f"[ERROR] Audio folder not found: {folder}")
-    except Exception as e:
-        logger.exception(f"[ERROR] Error listing directory {folder}")
-    return files_list
-
 class PygamePlayer:
     def __init__(self, track_list):
         """
@@ -88,7 +45,7 @@ class PygamePlayer:
             raise ValueError("ERROR: No audio files found in the specified folder.")
         self.track_list = track_list
         self.current_index = 0
-        self.paused = False  # Start unpaused by default
+        self.paused = False
         self.shuffle_on = False
         self._cache = {}  # Memory cache for player data
         self._max_cache_size = 5  # Maximum number of cached items

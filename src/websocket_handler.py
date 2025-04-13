@@ -16,13 +16,8 @@ _connected_clients = set()
 _state_changed = False
 _state_lock = threading.Lock()
 
-def get_last_activity_time():
-    """Get the last time a websocket message was received"""
-    return _last_websocket_activity
-
-# Add the function with the name expected by app.py
 def get_last_websocket_activity():
-    """Get the last time a websocket message was received (alias for compatibility)"""
+    """Get the last time a websocket message was received"""
     return _last_websocket_activity
 
 def broadcast_state_change(state):

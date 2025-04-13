@@ -4,7 +4,6 @@ import gc
 import psutil
 import os
 from src.downloader import download_youtube_audio
-from src.player import get_audio_files
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,6 @@ def setup_routes(app, audio_folder, player):
             if filepath_match:
                 new_filepath = filepath_match.group(1).strip()
             
-            # Use song cache instead of legacy function
             from src.player import get_duration
             if hasattr(app, 'song_cache'):
                 # Use the song cache to get fresh files
@@ -52,8 +50,8 @@ def setup_routes(app, audio_folder, player):
                 app.song_cache.flush()  # Save changes to cache
             else:
                 # Fallback to legacy method if cache isn't available
-                from src.player import get_audio_files
-                player.track_list = get_audio_files(audio_folder)
+                logger.error("[ERROR] Song cache not available for refreshing track list")
+                return jsonify({"message": "Error refreshing track list"}), 500
             
             # Normalize the newly downloaded file if normalizer is available
             if new_filepath and hasattr(app, 'audio_normalizer'):
