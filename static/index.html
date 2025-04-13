@@ -207,64 +207,6 @@
       });
     };
 
-    // Memory monitoring functions
-    const updateMemoryInfo = () => {
-      fetch('/system/memory')
-        .then(response => response.json())
-        .then(data => {
-          const memoryBar = document.getElementById('memoryBar');
-          const memoryText = document.getElementById('memoryText');
-          
-          if (memoryBar && memoryText) {
-            memoryBar.value = data.used_percent;
-            memoryText.innerHTML = `Memory: ${data.used_percent.toFixed(1)}% (${data.process_mb.toFixed(1)}MB)`;
-            
-            // Change color based on usage
-            if (data.used_percent > 90) {
-              memoryBar.className = 'progress-critical';
-            } else if (data.used_percent > 75) {
-              memoryBar.className = 'progress-warning';
-            } else {
-              memoryBar.className = 'progress-normal';
-            }
-          }
-        })
-        .catch(err => {
-          console.error("Error fetching memory info:", err);
-        });
-    };
-    
-    // Cache management functions
-    const updateCacheInfo = () => {
-      fetch('/system/cache')
-        .then(response => response.json())
-        .then(data => {
-          const cacheText = document.getElementById('cacheText');
-          if (cacheText) {
-            cacheText.innerHTML = `Cache: ${data.files_count} files`;
-          }
-        })
-        .catch(err => {
-          console.error("Error fetching cache info:", err);
-        });
-    };
-    
-    const optimizeMemory = () => {
-      setStatus("Optimizing memory...");
-      fetch('/system/optimize', {
-        method: 'POST'
-      })
-        .then(response => response.json())
-        .then(data => {
-          setStatus(`Memory optimized: ${data.memory_percent.toFixed(1)}% (${data.process_mb.toFixed(1)}MB)`);
-          updateMemoryInfo();
-        })
-        .catch(err => {
-          console.error("Error optimizing memory:", err);
-          setStatus("Error optimizing memory");
-        });
-    };
-
     // Setup event listeners on window load.
     window.onload = () => {
       connectWebSocket();
@@ -281,12 +223,6 @@
       });
       document.getElementById('search').addEventListener('input', handleSearch);
       document.getElementById('deleteButton').addEventListener('click', deleteActiveSong);
-      document.getElementById('optimizeButton').addEventListener('click', optimizeMemory);
-      
-      // Start memory monitoring
-      updateMemoryInfo();
-      updateCacheInfo();
-      setInterval(updateMemoryInfo, 30000); // Update every 30 seconds
     };
 
     window.onerror = (msg, url, lineNo, columnNo, error) => {
@@ -314,11 +250,6 @@
           <img src="/static/icons/svg/filled/next.svg" alt="Next" width="45" height="45">
       </button>
       <button id="shuffleButton">Shuffle</button>
-  </div>
-  <div class="memory-container">
-      <progress id="memoryBar" value="0" max="100" class="progress-normal"></progress>
-      <span id="memoryText">Memory: --.--%</span>
-      <button id="optimizeButton" title="Free memory">Optimize</button>
   </div>
   <div class="youtube-container">
       <input type="url" id="youtubeURL" placeholder="Paste YouTube URL">

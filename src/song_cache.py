@@ -60,6 +60,7 @@ class SongCache:
         files_list = []
         cache_hits = 0
         cache_misses = 0
+        new_files = []  # Track brand new files for normalization
         current_files = set()
         
         # Scan the actual folder
@@ -93,7 +94,8 @@ class SongCache:
                     entry = {
                         "path": file_path,
                         "name": file,
-                        "duration": self.cache['files'][file_path].get('duration')
+                        "duration": self.cache['files'][file_path].get('duration'),
+                        "normalized": self.cache['files'][file_path].get('normalized', False)
                     }
                     files_list.append(entry)
                     cache_hits += 1
@@ -107,10 +109,17 @@ class SongCache:
                         except Exception as e:
                             logger.error(f"[ERROR] Error calculating duration for {file}: {e}")
                     
+                    # Check if this is a new file or an updated file
+                    is_new = file_path not in self.cache['files']
+                    if is_new:
+                        new_files.append(file_path)  # Add to list of new files
+                        logger.info(f"[NEW] Found new audio file: {file}")
+                    
                     entry = {
                         "path": file_path,
                         "name": file,
-                        "duration": duration
+                        "duration": duration,
+                        "normalized": False  # Default to not normalized
                     }
                     files_list.append(entry)
                     cache_misses += 1
@@ -120,9 +129,69 @@ class SongCache:
                         'mtime': mtime,
                         'size': size,
                         'duration': duration,
+                        'normalized': False,
+                        'is_new': is_new,  # Mark if this was a new file
                         'last_accessed': datetime.now().isoformat()
                     }
                     self.modified = True
+            
+            # Also scan for normalized files if there's a normalized subdirectory
+            normalized_folder = os.path.join(folder, "normalized")
+            if os.path.exists(normalized_folder) and os.path.isdir(normalized_folder):
+                logger.info(f"[SCAN] Scanning normalized audio folder: {normalized_folder}")
+                for root, _, files in os.walk(normalized_folder):
+                    for file in files:
+                        normalized_file_path = os.path.join(root, file)
+                        
+                        # Skip non-audio files
+                        ext = os.path.splitext(file)[1].lower()
+                        if ext not in valid_extensions:
+                            continue
+                        
+                        # Determine the original file path
+                        rel_path = os.path.relpath(normalized_file_path, normalized_folder)
+                        original_file_path = os.path.join(folder, rel_path)
+                        
+                        # Add to the current files set so we don't prune it
+                        current_files.add(normalized_file_path)
+                        
+                        # Update cache for normalized file
+                        try:
+                            stat = os.stat(normalized_file_path)
+                            mtime = stat.st_mtime
+                            size = stat.st_size
+                            
+                            # Check if normalized file is in cache and unchanged
+                            if (normalized_file_path in self.cache['files'] and 
+                                    self.cache['files'][normalized_file_path].get('mtime') == mtime and 
+                                    self.cache['files'][normalized_file_path].get('size') == size):
+                                # Already in cache, nothing to do
+                                continue
+                            
+                            # Update or add normalized file to cache
+                            duration = None
+                            if get_duration_func:
+                                try:
+                                    duration = get_duration_func(normalized_file_path)
+                                except Exception as e:
+                                    logger.error(f"[ERROR] Error calculating duration for normalized file {file}: {e}")
+                            
+                            # Update cache entry for normalized file
+                            self.cache['files'][normalized_file_path] = {
+                                'mtime': mtime,
+                                'size': size,
+                                'duration': duration,
+                                'normalized': True,
+                                'original_path': original_file_path,
+                                'last_accessed': datetime.now().isoformat()
+                            }
+                            self.modified = True
+                            
+                            # We don't add normalized files to files_list here
+                            # as they'll be added by get_audio_files_with_normalization
+                            
+                        except Exception as e:
+                            logger.error(f"[ERROR] Error processing normalized file {normalized_file_path}: {e}")
             
             # Remove deleted files from cache
             cached_paths = list(self.cache['files'].keys())
@@ -142,10 +211,17 @@ class SongCache:
             end_time = time.time()
             logger.info(f"[OK] Found {len(files_list)} audio files ({cache_hits} from cache, {cache_misses} new) in {end_time-start_time:.2f}s")
             
+            # Store the new files list for apps to access
+            self.new_files = new_files
+            
             return files_list
         except Exception as e:
             logger.error(f"[ERROR] Error scanning folder {folder}: {e}")
             return []
+    
+    def get_new_files(self):
+        """Return the list of new files detected during the last scan"""
+        return getattr(self, 'new_files', [])
     
     def update_song_duration(self, file_path, duration):
         """Update a song's duration in the cache"""
@@ -206,4 +282,14 @@ class SongCache:
             return removed
         except Exception as e:
             logger.error(f"[ERROR] Error pruning cache: {e}")
-            return 0 
+            return 0
+
+    def update_normalized_status(self, file_path, normalized_path):
+        """Update a file's normalized status in the cache"""
+        if file_path in self.cache['files']:
+            self.cache['files'][file_path]['has_normalized'] = True
+            self.cache['files'][file_path]['normalized_path'] = normalized_path
+            self.cache['files'][file_path]['last_accessed'] = datetime.now().isoformat()
+            self.modified = True
+            return True
+        return False 

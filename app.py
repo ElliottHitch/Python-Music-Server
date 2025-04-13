@@ -20,6 +20,7 @@ from src.player import PygamePlayer, get_audio_files, get_duration
 from src.routes import setup_routes
 from src.websocket_handler import websocket_handler, get_last_websocket_activity, broadcast_state_change
 from src.song_cache import SongCache
+from src.audio_normalizer import AudioNormalizer
 
 # Optional systemd integration
 try:
@@ -249,11 +250,56 @@ def calculate_durations_background(player_instance):
                 logger.error(f"[ERROR] Error calculating duration for {track['name']}: {e}")
                 track['duration'] = -1  # Mark as error
     
-    # Final batch update
+    # Final batch update for durations
     if duration_updates:
         song_cache.update_batch(duration_updates)
-        
+    
+    # Note: We no longer trigger normalization here. All normalization is
+    # centralized in the main function after player initialization.
+    
     logger.info("[OK] Background duration calculation finished.")
+
+def update_player_with_normalized_tracks(normalized_paths):
+    """Callback to update player track list with newly normalized tracks."""
+    if not player:
+        logger.warning("[WARNING] Player not available to update with normalized tracks")
+        return
+        
+    # Update paths in the player's track list to use normalized versions
+    updated_count = 0
+    for i, track in enumerate(player.track_list):
+        original_path = track.get('path')
+        
+        # Skip already normalized tracks
+        if track.get('normalized', False):
+            continue
+            
+        # Find if this track has been normalized
+        for norm_path in normalized_paths:
+            # Check if this is the normalized version of the current track
+            rel_path = os.path.relpath(norm_path, audio_normalizer.normalized_folder)
+            orig_path = os.path.join(audio_normalizer.audio_folder, rel_path)
+            
+            if orig_path == original_path:
+                # Update to use the normalized version
+                logger.info(f"[NORMALIZE] Switching to normalized version: {norm_path}")
+                player.track_list[i]['path'] = norm_path
+                player.track_list[i]['normalized'] = True
+                updated_count += 1
+                break
+    
+    if updated_count > 0:
+        logger.info(f"[NORMALIZE] Updated {updated_count} tracks to use normalized versions")
+        # If currently playing a song that was normalized, reload it
+        current_track = player.track_list[player.current_index]
+        if current_track.get('normalized') and pygame.mixer.music.get_busy():
+            # Save position
+            pos = pygame.mixer.music.get_pos() / 1000.0  # Convert ms to seconds
+            # Reload the track
+            player.load_track(player.current_index)
+            # Resume from position if possible
+            if pos > 0:
+                pygame.mixer.music.play(start=pos)
 
 async def heartbeat_task(watchdog):
     """Task to periodically update the watchdog heartbeat."""
@@ -376,6 +422,36 @@ async def start_servers():
         logger.info("[OK] Player resources cleaned up")
         logger.info("[OK] Event processing stopped")
 
+def get_audio_files_with_normalization(audio_folder, normalizer):
+    """Get all audio files, with preference for normalized versions."""
+    # Get all original audio files using song_cache instead of deprecated function
+    original_files = song_cache.get_cached_audio_files(audio_folder, get_duration)
+    
+    # Replace paths with normalized versions where available
+    normalized_files = []
+    files_to_normalize = []
+    
+    for file_info in original_files:
+        original_path = file_info['path']
+        
+        # Check if a normalized version exists
+        if normalizer.is_normalized(original_path):
+            # Use the normalized version
+            normalized_path = normalizer.get_normalized_path(original_path)
+            file_info['path'] = normalized_path
+            file_info['normalized'] = True
+            normalized_files.append(file_info)
+        else:
+            # Use the original version for now, but add to normalization queue
+            file_info['normalized'] = False
+            normalized_files.append(file_info)
+            files_to_normalize.append(original_path)
+    
+    # We'll handle normalization in the main app after initializing the player
+    # to avoid duplicate normalization triggers
+    
+    return normalized_files, files_to_normalize
+
 if __name__ == "__main__":
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -400,19 +476,29 @@ if __name__ == "__main__":
         # Decide if you want to exit or continue without audio
         exit(1) # Exit if mixer fails
 
-    # Load audio files (using cache where possible)
-    audio_files = song_cache.get_cached_audio_files(AUDIO_FOLDER, get_duration)
-    
+    # Initialize audio normalizer
+    audio_normalizer = AudioNormalizer(AUDIO_FOLDER)
+    logger.info(f"[OK] Audio normalizer initialized, normalized files in {audio_normalizer.normalized_folder}")
+
+    # Load audio files with normalization support
+    audio_files, files_to_normalize = get_audio_files_with_normalization(AUDIO_FOLDER, audio_normalizer)
+
     # Prune old cache entries
     song_cache.prune_cache(max_age_days=90)
-    
+
     # Initialize player
     try:
         player = PygamePlayer(audio_files)
     except ValueError as e:
         logger.error(e)
         exit(1)
-    
+
+    # Start normalizing files after player is initialized
+    # This centralizes all normalization to a single place
+    if files_to_normalize:
+        logger.info(f"[NORMALIZE] Starting normalization of {len(files_to_normalize)} files")
+        audio_normalizer.normalize_files_background(files_to_normalize, callback=update_player_with_normalized_tracks)
+
     # Start background duration calculation
     duration_thread = threading.Thread(
         target=calculate_durations_background, 
@@ -420,13 +506,15 @@ if __name__ == "__main__":
         daemon=True # Allow program to exit even if this thread is running
     )
     duration_thread.start()
-    
+
     # Setup routes
     setup_routes(app, AUDIO_FOLDER, player)
 
     # Make the song cache available to routes
     app.song_cache = song_cache
     app.config['AUDIO_FOLDER'] = AUDIO_FOLDER
+    # Make the audio normalizer available to routes
+    app.audio_normalizer = audio_normalizer
     
     # Load saved state if it exists
     saved_state = load_state()
