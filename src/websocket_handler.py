@@ -24,10 +24,7 @@ def get_last_websocket_activity():
 
 def broadcast_state_change(state):
     """
-    Mark that state has changed since the last client interaction.
-    The next time any client sends a message, they'll get the latest state.
-    
-    Additionally, send the state update to all connected clients immediately.
+    Mark that state has changed and broadcast to all connected clients
     """
     global _state_changed, _last_state
     
@@ -35,7 +32,6 @@ def broadcast_state_change(state):
         _state_changed = True
         _last_state = state.copy() if state else {}
     
-    # If we have connected clients, broadcast to all of them
     if _connected_clients:
         asyncio_loop = asyncio.get_event_loop()
         for client in list(_connected_clients):
@@ -54,18 +50,14 @@ async def _send_state_update(websocket, state):
         _connected_clients.discard(websocket)
 
 async def websocket_handler(websocket, player, save_state_callback):
-    """
-    Handle WebSocket connections and player control commands
-    """
+    """Handle WebSocket connections and player control commands"""
     global _last_websocket_activity, _state_changed
     
-    # Add client to connected clients set
     _connected_clients.add(websocket)
     client_id = id(websocket)
     logger.info(f"[WEBSOCKET] New client connected: {client_id}")
     
     try:
-        # Send initial state - optimize by sending only what's needed
         songs_payload = [
             {"name": song["name"], "duration": format_duration(song["duration"])}
             for song in player.track_list
@@ -77,28 +69,22 @@ async def websocket_handler(websocket, player, save_state_callback):
         }
         await websocket.send(json.dumps(init_payload))
         
-        # Start message handling loop
         async for message in websocket:
             try:
-                # Update activity time when any WebSocket message is received
                 _last_websocket_activity = time.time()
                 
-                # Process incoming command
                 command = message.strip().lower()
                 command_changed_state = False
                 
-                # Check if state has changed since last client interaction
                 state_changed_flag = False
                 with _state_lock:
                     if _state_changed:
                         state_changed_flag = True
                         _state_changed = False
                 
-                # If state changed due to auto-advance, send update
                 if state_changed_flag:
                     await websocket.send(json.dumps({"state": player.current_state()}))
                 
-                # Use a dispatch map for cleaner command handling
                 if command in {"play", "pause", "next", "back", "toggle-shuffle"}:
                     command_map = {
                         "play": player.play,
@@ -131,7 +117,6 @@ async def websocket_handler(websocket, player, save_state_callback):
                         player.delete_track(index)
                         command_changed_state = True
                         
-                        # Optimize by sending just what changed - both state and updated songs list
                         await websocket.send(json.dumps({
                             "state": player.current_state(),
                             "songs": [
@@ -150,7 +135,6 @@ async def websocket_handler(websocket, player, save_state_callback):
                     await websocket.send(json.dumps({"message": "Unknown command"}))
                     continue
                     
-                # Only save state if command changed it
                 if command_changed_state:
                     current_state = player.current_state()
                     save_state_callback(current_state)
@@ -160,6 +144,5 @@ async def websocket_handler(websocket, player, save_state_callback):
     except Exception as e:
         logger.error(f"[ERROR] WebSocket connection error: {e}")
     finally:
-        # Remove client from connected clients set when connection closes
         _connected_clients.discard(websocket)
         logger.info(f"[WEBSOCKET] Client disconnected: {client_id}") 

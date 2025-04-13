@@ -13,7 +13,7 @@
     const wsUrl = `${wsProtocol}://${window.location.hostname}:${wsPort}`;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
-    const reconnectInterval = 3000; // Reduced from 5000ms to 3000ms
+    const reconnectInterval = 1000; // Reconnection delay in ms
     let reconnectTimer = null;
     let lastState = {}; // Cache the last state to avoid duplicate updates
 
@@ -31,26 +31,23 @@
       websocket.onopen = () => {
         console.log("Connected to WebSocket server");
         
-        // If this was a reconnection (not initial), show brief success message
         if (reconnectAttempts > 0) {
           setStatus("Connection restored", 1000);
         }
         
-        reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+        reconnectAttempts = 0;
       };
       
       websocket.onmessage = event => {
         try {
           const data = JSON.parse(event.data);
           
-          // Process updates efficiently
           if (data.songs) {
             songs = data.songs;
             populateSongs(songs);
           }
           
           if (data.state) {
-            // Only update UI if state actually changed
             if (JSON.stringify(data.state) !== JSON.stringify(lastState)) {
               lastState = data.state;
               updateUI(data.state);
@@ -104,12 +101,10 @@
         websocket.send(command);
         return true;
       } else if (retries > 0 && websocket && websocket.readyState === WebSocket.CONNECTING) {
-        // If websocket is connecting, wait and retry
         setTimeout(() => sendCommand(command, retries - 1), 500);
         return true;
       } else {
         setStatus("Connection error. Please try again.", 5000);
-        // Try to reconnect if disconnected
         if (!websocket || websocket.readyState === WebSocket.CLOSED) {
           connectWebSocket();
         }
