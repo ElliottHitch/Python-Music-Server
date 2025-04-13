@@ -323,10 +323,8 @@ def pygame_event_handler():
             if last_pos > 0:
                 current_song = player.track_list[player.current_index]['name']
                 logger.info(f"[PLAYER] Song ended: {current_song}")
-                print(f"\n[PLAYER] Auto-changing song: {current_song} finished playing")
+                # Remove print statements for normal operation
                 player.next()
-                next_song = player.track_list[player.current_index]['name']
-                print(f"[PLAYER] Now playing: {next_song}\n")
                 # Reset last_pos after processing
                 last_pos = 0
                 # Update activity time
