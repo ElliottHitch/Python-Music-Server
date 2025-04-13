@@ -21,6 +21,8 @@ def get_duration(file_path):
         # Fast duration check for mp3
         sound = pygame.mixer.Sound(file_path)
         duration = sound.get_length()  # in seconds
+        # Release sound object to prevent memory leaks
+        del sound
         return duration
     except Exception as e:
         logger.warning(f"[WARNING] Failed to get duration for {file_path}: {e}")
@@ -34,6 +36,10 @@ class PygamePlayer:
         Args:
             track_list: List of dictionaries containing track information
         """
+        # Initialize pygame mixer if not already initialized
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
+            
         if not track_list:
             raise ValueError("ERROR: No audio files found in the specified folder.")
         self.track_list = track_list
@@ -45,9 +51,16 @@ class PygamePlayer:
         self.last_played = []  # Keep track of recently played for shuffle
         self.max_history = 10  # Maximum history size
         
+        # Add lock for thread safety
+        self._lock = threading.RLock()
+        
         # Garbage collection tracking
         self._cleanup_count = 0
         self._last_gc_time = time.time()
+        
+        # Add thread for monitoring track end
+        self._playback_monitor = None
+        self._monitor_active = False
         
         # Load first track
         self.load_track(self.current_index)
@@ -92,26 +105,28 @@ class PygamePlayer:
     def load_track(self, index):
         """Load track at the specified index"""
         try:
-            # Clean up any existing resources before loading new track
-            self._cleanup_resources("all")
-            
-            # Clear pygame mixer if it's already initialized to free memory
-            if pygame.mixer.music.get_busy():
-                pygame.mixer.music.stop()
+            with self._lock:
+                # Clean up any existing resources before loading new track
+                self._cleanup_resources("all")
                 
-            # Track loading - check if we've exceeded reasonable memory usage
-            self._manage_cache()
-            
-            # Keep track of path for cache management
-            current_path = self.track_list[index]['path']
-            self._cache[current_path] = True  # Mark as recently used
-            
-            # Use direct file loading for reliability
-            pygame.mixer.music.load(current_path)
-            logger.info(f"[OK] Loaded track: {self.track_list[index]['name']}")
+                # Clear pygame mixer if it's already initialized to free memory
+                if pygame.mixer.music.get_busy():
+                    pygame.mixer.music.stop()
+                    
+                # Track loading - check if we've exceeded reasonable memory usage
+                self._manage_cache()
                 
+                # Keep track of path for cache management
+                current_path = self.track_list[index]['path']
+                self._cache[current_path] = True  # Mark as recently used
+                
+                # Use direct file loading for reliability
+                pygame.mixer.music.load(current_path)
+                logger.info(f"[OK] Loaded track: {self.track_list[index]['name']}")
+                    
         except Exception as e:
             logger.error(f"[ERROR] Error loading track {self.track_list[index]['name']}: {e}")
+            raise  # Re-raise the exception to prevent inconsistent state
 
     def _manage_cache(self):
         """Manage cache size to prevent memory issues"""
@@ -141,80 +156,114 @@ class PygamePlayer:
             return True
         return False
 
+    def _playback_monitor_thread(self):
+        """Thread to monitor when playback ends and automatically advance"""
+        while self._monitor_active:
+            try:
+                # Use a flag-based approach to signal track advancement
+                next_track = False
+                with self._lock:
+                    if not self.paused and not pygame.mixer.music.get_busy():
+                        next_track = True
+                
+                # Call next() directly if needed, but release the lock first
+                if next_track:
+                    # Call next() directly from this thread, but with proper lock handling
+                    # next() already contains its own lock acquisition
+                    self.next()
+                
+                time.sleep(0.5)  # Check every half second
+            except Exception as e:
+                logger.error(f"[ERROR] Exception in playback monitor: {e}")
+                time.sleep(1.0)  # Sleep longer on error to avoid tight error loops
+
     def start_track(self):
         """Start playing the current track"""
-        pygame.mixer.music.play()
-        self.paused = False
-        
-        # Add to history
-        if self.current_index not in self.last_played:
-            self.last_played.append(self.current_index)
-            if len(self.last_played) > self.max_history:
-                self.last_played.pop(0)
+        with self._lock:
+            pygame.mixer.music.play()
+            self.paused = False
+            
+            # Add to history
+            if self.current_index not in self.last_played:
+                self.last_played.append(self.current_index)
+                if len(self.last_played) > self.max_history:
+                    self.last_played.pop(0)
+                
+            # Start monitoring for end of track if not already
+            if not self._monitor_active:
+                self._monitor_active = True
+                self._playback_monitor = threading.Thread(target=self._playback_monitor_thread)
+                self._playback_monitor.daemon = True  # Thread will exit when main program exits
+                self._playback_monitor.start()
 
     def play(self):
         """Play or resume playback"""
-        if self.paused:
-            # Track is paused, unpause it
-            pygame.mixer.music.unpause()
-            # Check if unpausing worked by seeing if music is now playing
-            if not pygame.mixer.music.get_busy():
-                # Unpausing didn't work, reload and start the track
+        with self._lock:
+            if self.paused:
+                # Track is paused, unpause it
+                pygame.mixer.music.unpause()
+                # Check if unpausing worked by seeing if music is now playing
+                if not pygame.mixer.music.get_busy():
+                    # Unpausing didn't work, reload and start the track
+                    self.load_track(self.current_index)
+                    self.start_track()
+                else:
+                    # Unpausing worked, update paused state
+                    self.paused = False
+            else:
+                # Track wasn't paused, load and start it
                 self.load_track(self.current_index)
                 self.start_track()
-            else:
-                # Unpausing worked, update paused state
-                self.paused = False
-        else:
-            # Track wasn't paused, load and start it
-            self.load_track(self.current_index)
-            self.start_track()
 
     def pause(self):
         """Toggle pause state"""
-        if self.paused:
-            # If currently paused, unpause
-            pygame.mixer.music.unpause()
-            self.paused = False
-        else:
-            # If currently playing, pause
-            pygame.mixer.music.pause()
-            self.paused = True
+        with self._lock:
+            if self.paused:
+                # If currently paused, unpause
+                pygame.mixer.music.unpause()
+                self.paused = False
+            else:
+                # If currently playing, pause
+                pygame.mixer.music.pause()
+                self.paused = True
 
     def next(self):
         """Skip to next track"""
-        if self.shuffle_on and len(self.track_list) > 1:
-            # More intelligent shuffle that avoids recent history
-            available_indices = [i for i in range(len(self.track_list)) 
-                               if i not in self.last_played[-min(len(self.last_played), 5):]]
-            
-            # If we've played all songs recently, allow repeats but avoid current
-            if not available_indices:
-                available_indices = [i for i in range(len(self.track_list)) if i != self.current_index]
-            
-            # Choose random from available
-            if available_indices:
-                self.current_index = random.choice(available_indices)
+        with self._lock:
+            if self.shuffle_on and len(self.track_list) > 1:
+                # More intelligent shuffle that avoids recent history
+                available_indices = [i for i in range(len(self.track_list)) 
+                                  if i not in self.last_played[-min(len(self.last_played), 5):]]
+                
+                # If we've played all songs recently, allow repeats but avoid current
+                if not available_indices:
+                    available_indices = [i for i in range(len(self.track_list)) if i != self.current_index]
+                
+                # Choose random from available
+                if available_indices:
+                    self.current_index = random.choice(available_indices)
+                else:
+                    self.current_index = (self.current_index + 1) % len(self.track_list)
             else:
                 self.current_index = (self.current_index + 1) % len(self.track_list)
-        else:
-            self.current_index = (self.current_index + 1) % len(self.track_list)
-        
-        # Load and start the next track    
-        self.load_track(self.current_index)
-        self.start_track()
+            
+            # Load and start the next track    
+            self.load_track(self.current_index)
+            self.start_track()
 
     def back(self):
         """Go to the previous track in the playlist"""
-        self.current_index = (self.current_index - 1) % len(self.track_list)
-        self.load_track(self.current_index)
-        self.start_track()
+        with self._lock:
+            self.current_index = (self.current_index - 1) % len(self.track_list)
+            self.load_track(self.current_index)
+            self.start_track()
 
     def play_track(self, index):
         """Play a specific track by index"""
-        self.current_index = index
-        self.load_track(self.current_index)
-        self.start_track()
+        with self._lock:
+            self.current_index = index
+            self.load_track(self.current_index)
+            self.start_track()
 
     def set_volume(self, volume):
         """Set playback volume (0.0 to 1.0)"""
@@ -239,28 +288,48 @@ class PygamePlayer:
         Args:
             index: Index of track to delete
         """
-        if index < 0 or index >= len(self.track_list):
-            raise IndexError("ERROR: Invalid track index")
-        song = self.track_list[index]
-        if not os.path.exists(song['path']):
-            raise FileNotFoundError(f"ERROR: File not found: {song['path']}")
-        try:
-            # If the current track is being deleted, move to the next track if available.
-            if index == self.current_index:
-                if len(self.track_list) > 1:
-                    self.current_index = (index + 1) % len(self.track_list)
+        with self._lock:
+            if index < 0 or index >= len(self.track_list):
+                raise IndexError("ERROR: Invalid track index")
+            
+            song = self.track_list[index]
+            file_path = song['path']
+            
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"ERROR: File not found: {file_path}")
+            
+            try:
+                # If the current track is being deleted, stop it first
+                if index == self.current_index and pygame.mixer.music.get_busy():
+                    pygame.mixer.music.stop()
+                
+                # Remove the file
+                os.remove(file_path)
+                
+                # Update the playlist
+                del self.track_list[index]
+                
+                # Update current_index if necessary
+                if len(self.track_list) == 0:
+                    self.current_index = 0
+                    self.paused = True
+                    return
+                
+                # Adjust current_index if the deleted track was before it
+                if index < self.current_index:
+                    self.current_index -= 1
+                # If we deleted the current track, load the next one
+                elif index == self.current_index:
+                    if self.current_index >= len(self.track_list):
+                        self.current_index = 0
                     self.load_track(self.current_index)
                     self.start_track()
-                else:
-                    pygame.mixer.music.stop()
-                    self.paused = True
-            os.remove(song['path'])
-            del self.track_list[index]
-            if self.current_index >= len(self.track_list):
-                self.current_index = 0
-        except Exception as e:
-            logger.error(f"[ERROR] Error deleting track {song['name']}: {e}")
-            raise
+            except PermissionError:
+                logger.error(f"[ERROR] Permission denied when deleting {song['name']}")
+                raise PermissionError(f"Cannot delete file: Permission denied for {file_path}")
+            except Exception as e:
+                logger.error(f"[ERROR] Error deleting track {song['name']}: {e}")
+                raise
     
     def current_state(self):
         """
@@ -280,6 +349,11 @@ class PygamePlayer:
     def cleanup(self):
         """Clean up all resources when app is shutting down"""
         logger.info("INFO: Performing final player cleanup")
+        # Stop monitoring thread
+        self._monitor_active = False
+        if self._playback_monitor and self._playback_monitor.is_alive():
+            self._playback_monitor.join(timeout=1.0)
+            
         self._cleanup_resources("all")
         self.clear_cache()
         try:
