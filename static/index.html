@@ -13,11 +13,18 @@
     const wsUrl = `${wsProtocol}://${window.location.hostname}:${wsPort}`;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
-    const reconnectInterval = 5000; // 5 seconds
+    const reconnectInterval = 3000; // Reduced from 5000ms to 3000ms
+    let reconnectTimer = null;
+    let lastState = {}; // Cache the last state to avoid duplicate updates
 
     // Connect to the websocket server.
     const connectWebSocket = () => {
-      console.log(`Attempting to connect to WebSocket at ${wsUrl}`);
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      
+      console.log(`Connecting to WebSocket at ${wsUrl}`);
       
       websocket = new WebSocket(wsUrl);
       
@@ -35,18 +42,26 @@
       websocket.onmessage = event => {
         try {
           const data = JSON.parse(event.data);
+          
+          // Process updates efficiently
           if (data.songs) {
             songs = data.songs;
             populateSongs(songs);
           }
+          
           if (data.state) {
-            updateUI(data.state);
+            // Only update UI if state actually changed
+            if (JSON.stringify(data.state) !== JSON.stringify(lastState)) {
+              lastState = data.state;
+              updateUI(data.state);
+            }
           }
+          
           if (data.message) {
             setStatus(data.message, 5000);
           }
         } catch (e) {
-          console.error("Error parsing WebSocket message:", event.data);
+          console.error("Error parsing WebSocket message:", e, event.data);
         }
       };
       
@@ -56,33 +71,49 @@
       };
       
       websocket.onclose = (event) => {
-        console.log(`WebSocket closed (code: ${event.code}). Reconnecting in 5 seconds...`);
+        console.log(`WebSocket closed (code: ${event.code}). Reconnecting in 3 seconds...`);
         
         if (reconnectAttempts < maxReconnectAttempts) {
           reconnectAttempts++;
           setStatus(`Connection lost. Reconnecting... (Attempt ${reconnectAttempts}/${maxReconnectAttempts})`, 1500);
-          setTimeout(connectWebSocket, reconnectInterval);
+          reconnectTimer = setTimeout(connectWebSocket, reconnectInterval);
         } else {
           setStatus("Failed to connect after multiple attempts. Please refresh the page.", 0);
         }
       };
     };
 
+    // Improved status display function
     const setStatus = (message, timeout = 5000) => {
       const statusEl = document.getElementById('status');
+      if (!statusEl) return;
+      
       statusEl.innerText = message;
-      if (timeout) {
+      if (timeout > 0) {
         setTimeout(() => {
-            statusEl.innerText = "";
+            if (statusEl.innerText === message) {
+                statusEl.innerText = "";
+            }
         }, timeout);
       }
     };
 
-    const sendCommand = command => {
+    // Improved command sending with retry capability
+    const sendCommand = (command, retries = 1) => {
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         websocket.send(command);
+        return true;
+      } else if (retries > 0 && websocket && websocket.readyState === WebSocket.CONNECTING) {
+        // If websocket is connecting, wait and retry
+        setTimeout(() => sendCommand(command, retries - 1), 500);
+        return true;
       } else {
         setStatus("Connection error. Please try again.", 5000);
+        // Try to reconnect if disconnected
+        if (!websocket || websocket.readyState === WebSocket.CLOSED) {
+          connectWebSocket();
+        }
+        return false;
       }
     };
 
