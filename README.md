@@ -56,6 +56,31 @@ The web interface is available at:
 - State persistence between restarts
 - Built-in watchdog for reliability
 
+## Test Suite
+
+The project includes a comprehensive test suite for performance, memory, and reliability testing.
+
+### Running Tests
+
+First, install test dependencies:
+```bash
+pip install -r tests/requirements-test.txt
+```
+
+Run tests using the test runner:
+```bash
+# Run a specific test type
+python run_tests.py performance
+
+# Run a quick test suite
+python run_tests.py all --quick
+
+# Run a reliability test with server management
+python run_tests.py reliability --managed
+```
+
+See the [test documentation](tests/test_readme.md) for detailed information about the test suite.
+
 ## Linux/Raspberry Pi Service Setup (Optional)
 
 To run the player as a background service that starts automatically at boot:

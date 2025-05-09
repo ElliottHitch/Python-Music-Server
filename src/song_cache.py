@@ -2,7 +2,9 @@ import os
 import json
 import time
 import logging
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
+from src.audio_format import SUPPORTED_FORMATS, is_supported_format
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,6 @@ class SongCache:
             
     def get_cached_audio_files(self, folder, get_duration_func=None):
         """Get audio files, using cache where possible"""
-        valid_extensions = {'.mp3', '.wav', '.ogg'}
         files_list = []
         cache_hits = 0
         cache_misses = 0
@@ -73,8 +74,7 @@ class SongCache:
                 current_files.add(file_path)
                 
                 # Skip non-audio files
-                ext = os.path.splitext(file)[1].lower()
-                if ext not in valid_extensions:
+                if not is_supported_format(file_path):
                     continue
                     
                 # Get file stats
@@ -145,7 +145,7 @@ class SongCache:
                         
                         # Skip non-audio files
                         ext = os.path.splitext(file)[1].lower()
-                        if ext not in valid_extensions:
+                        if ext not in SUPPORTED_FORMATS:
                             continue
                         
                         # Determine the original file path

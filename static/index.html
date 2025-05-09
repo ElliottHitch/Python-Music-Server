@@ -11,14 +11,13 @@
     const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const wsPort = 8765;
     const wsUrl = `${wsProtocol}://${window.location.hostname}:${wsPort}`;
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    const reconnectInterval = 1000; // Reconnection delay in ms
     let reconnectTimer = null;
+    let reconnectDelay = 1000; // Start with 1s, will increase with backoff
     let lastState = {}; // Cache the last state to avoid duplicate updates
 
-    // Connect to the websocket server.
+    // Connect to the websocket server with simplified reconnection
     const connectWebSocket = () => {
+      // Clear any existing reconnect timer
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -30,12 +29,8 @@
       
       websocket.onopen = () => {
         console.log("Connected to WebSocket server");
-        
-        if (reconnectAttempts > 0) {
-          setStatus("Connection restored", 1000);
-        }
-        
-        reconnectAttempts = 0;
+        reconnectDelay = 1000; // Reset delay on successful connection
+        setStatus("Connected", 1000);
       };
       
       websocket.onmessage = event => {
@@ -64,19 +59,17 @@
       
       websocket.onerror = error => {
         console.error("WebSocket Error:", error);
-        setStatus(`Connection error. Please check your network.`, 0);
       };
       
-      websocket.onclose = (event) => {
-        console.log(`WebSocket closed (code: ${event.code}). Reconnecting in 3 seconds...`);
+      websocket.onclose = () => {
+        console.log(`WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
         
-        if (reconnectAttempts < maxReconnectAttempts) {
-          reconnectAttempts++;
-          setStatus(`Connection lost. Reconnecting... (Attempt ${reconnectAttempts}/${maxReconnectAttempts})`, 1500);
-          reconnectTimer = setTimeout(connectWebSocket, reconnectInterval);
-        } else {
-          setStatus("Failed to connect after multiple attempts. Please refresh the page.", 0);
-        }
+        // Implement exponential backoff for reconnection
+        reconnectTimer = setTimeout(() => {
+          connectWebSocket();
+          // Increase delay for next reconnection (max 30s)
+          reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+        }, reconnectDelay);
       };
     };
 
@@ -95,19 +88,14 @@
       }
     };
 
-    // Improved command sending with retry capability
-    const sendCommand = (command, retries = 1) => {
+    // Improved command sending with simplified retry
+    const sendCommand = (command) => {
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         websocket.send(command);
         return true;
-      } else if (retries > 0 && websocket && websocket.readyState === WebSocket.CONNECTING) {
-        setTimeout(() => sendCommand(command, retries - 1), 500);
-        return true;
       } else {
-        setStatus("Connection error. Please try again.", 5000);
-        if (!websocket || websocket.readyState === WebSocket.CLOSED) {
-          connectWebSocket();
-        }
+        setStatus("Connection error. Reconnecting...", 2000);
+        connectWebSocket();
         return false;
       }
     };
@@ -286,13 +274,13 @@
   <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.5">
   <div class="form-group">
       <input type="text" id="search" class="form-control" placeholder="Search for a song">
-      <button id="deleteButton">Delete</button>
+      <button id="deleteButton">Delete</button> 
   </div>
   <div class="table-container">
       <table id="songsTable">
           <thead>
               <tr>
-                  <th>Songs</th>
+                  <th></th>
               </tr>
           </thead>
           <tbody></tbody>

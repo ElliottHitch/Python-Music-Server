@@ -16,11 +16,15 @@ import json
 # Import from our modules
 from src.logger import setup_logger
 from src.config import load_config, load_state, save_state
-from src.player import PygamePlayer, get_duration
+from src.player import PygamePlayer
+from src.audio_format import get_duration
 from src.routes import setup_routes
 from src.websocket_handler import websocket_handler, get_last_websocket_activity, broadcast_state_change
 from src.song_cache import SongCache
 from src.audio_normalizer import AudioNormalizer
+from src.memory_monitor import MemoryMonitor
+from src.watchdog import Watchdog
+from src.downloader import ensure_files_in_playlist
 
 # Optional systemd integration
 try:
@@ -44,170 +48,6 @@ shutdown_event = threading.Event()
 restart_in_progress = False
 song_cache = SongCache()  # Initialize the song cache
 
-class Watchdog:
-    """Watchdog to monitor the application and restart it if it crashes."""
-    
-    def __init__(self, check_interval=30):
-        """Initialize the watchdog.
-        
-        Args:
-            check_interval: How often to check system health in seconds
-        """
-        self.check_interval = check_interval
-        self.last_heartbeat = time.time()
-        self.running = True
-        self.thread = threading.Thread(target=self._monitor, daemon=True)
-        
-    def start(self):
-        """Start the watchdog monitor thread."""
-        self.thread.start()
-        logger.info("[OK] Watchdog monitor started")
-        
-    def heartbeat(self):
-        """Update the heartbeat timestamp."""
-        self.last_heartbeat = time.time()
-        # Send systemd watchdog notification if available
-        if has_systemd:
-            try:
-                systemd.daemon.notify("WATCHDOG=1")
-            except Exception as e:
-                logger.error(f"[ERROR] Failed to notify systemd watchdog: {e}")
-        
-    def _monitor(self):
-        """Monitor thread that checks for system health."""
-        while self.running and not shutdown_event.is_set():
-            time_since_heartbeat = time.time() - self.last_heartbeat
-            
-            # If no heartbeat for more than 2x the interval, restart
-            if time_since_heartbeat > (self.check_interval * 2):
-                logger.error(f"[ERROR] Watchdog detected no heartbeat for {time_since_heartbeat:.1f} seconds. Restarting application...")
-                self._restart_application()
-                return
-                
-            # Check other critical components
-            try:
-                if player and not pygame.mixer.get_init():
-                    logger.error("[ERROR] Watchdog detected pygame mixer failure. Restarting application...")
-                    self._restart_application()
-                    return
-            except Exception as e:
-                logger.error(f"[ERROR] Watchdog error during health check: {e}")
-                
-            time.sleep(self.check_interval)
-            
-    def _restart_application(self):
-        """Restart the entire application."""
-        global restart_in_progress
-        if restart_in_progress:
-            return
-            
-        restart_in_progress = True
-        logger.info("[RESTART] Initiating application restart...")
-        
-        # Save state before restarting
-        if player:
-            save_state(player.current_state())
-            
-        # Use os.execv to restart the current process
-        try:
-            os.execv(sys.executable, ['python'] + sys.argv)
-        except Exception as e:
-            logger.error(f"[ERROR] Failed to restart application: {e}")
-            # If we can't restart, exit and let the external watchdog handle it
-            os._exit(1)
-    
-    def stop(self):
-        """Stop the watchdog monitor."""
-        self.running = False
-
-class MemoryMonitor:
-    """Monitor and manage memory usage to prevent OOM on resource-constrained devices."""
-    
-    def __init__(self, check_interval=60, gc_threshold=85.0, critical_threshold=90.0):
-        """Initialize the memory monitor.
-        
-        Args:
-            check_interval: How often to check memory in seconds
-            gc_threshold: Memory percentage at which to trigger garbage collection
-            critical_threshold: Memory percentage at which to take critical action
-        """
-        self.check_interval = check_interval
-        self.gc_threshold = gc_threshold
-        self.critical_threshold = critical_threshold
-        self.running = True
-        self.thread = threading.Thread(target=self._monitor, daemon=True)
-        self.process = psutil.Process(os.getpid())
-        self.last_gc_time = time.time()
-        self.gc_min_interval = 300  # Minimum seconds between forced GC
-        
-    def start(self):
-        """Start the memory monitor thread."""
-        self.thread.start()
-        logger.info("[OK] Memory monitor started")
-        
-    def _monitor(self):
-        """Monitor thread that checks memory usage and takes appropriate actions."""
-        while self.running and not shutdown_event.is_set():
-            try:
-                current_time = time.time()
-                # Get memory usage as percentage
-                memory_percent = psutil.virtual_memory().percent
-                process_memory = self.process.memory_info().rss / 1024 / 1024  # MB
-                
-                # Log memory usage every interval
-                logger.info(f"[MEMORY] Memory usage: System {memory_percent:.1f}%, Process {process_memory:.1f}MB")
-                
-                # If memory usage is high AND we haven't run GC recently, trigger garbage collection
-                if (memory_percent > self.gc_threshold and 
-                    current_time - self.last_gc_time > self.gc_min_interval):
-                    self.force_garbage_collection()
-                    self.last_gc_time = current_time
-                
-                # If memory usage is critical, take more aggressive action regardless of timing
-                if memory_percent > self.critical_threshold:
-                    self.handle_critical_memory()
-                    self.last_gc_time = current_time
-                
-            except Exception as e:
-                logger.error(f"[ERROR] Memory monitor error: {e}")
-                
-            time.sleep(self.check_interval)
-    
-    def force_garbage_collection(self):
-        """Force Python garbage collection to free memory."""
-        logger.info("[CLEANUP] Memory threshold exceeded, forcing garbage collection")
-        collected = gc.collect()
-        unreachable = gc.garbage
-        logger.info(f"[CLEANUP] Garbage collection: {collected} objects collected, {len(unreachable)} unreachable objects")
-        
-    def handle_critical_memory(self):
-        """Handle critical memory situation by taking aggressive actions."""
-        logger.warning("[CRITICAL] CRITICAL MEMORY THRESHOLD EXCEEDED!")
-        
-        # Force more aggressive garbage collection
-        logger.info("[CLEANUP] Performing full garbage collection")
-        gc.collect(2)  # Full collection
-        
-        # Clean up player resources if available
-        if player:
-            if hasattr(player, '_cleanup_resources'):
-                logger.info("[CLEANUP] Cleaning up all player resources")
-                player._cleanup_resources("all")
-                
-            # Clear any in-memory caches if they exist
-            if hasattr(player, 'clear_cache'):
-                logger.info("[CLEANUP] Clearing player cache")
-                player.clear_cache()
-        
-        # Log memory after cleanup
-        memory_percent = psutil.virtual_memory().percent
-        process_memory = self.process.memory_info().rss / 1024 / 1024  # MB
-        logger.info(f"[MEMORY] Memory after cleanup: System {memory_percent:.1f}%, Process {process_memory:.1f}MB")
-    
-    def stop(self):
-        """Stop the memory monitor."""
-        self.running = False
-
 # Register save_state to be called on exit
 atexit.register(lambda: player.cleanup() if player else None)
 atexit.register(lambda: save_state(player.current_state() if player else {}))
@@ -220,83 +60,6 @@ def signal_handler(sig, frame):
         player.cleanup()  # Clean up player resources properly
         save_state(player.current_state())
     sys.exit(0)
-
-def calculate_durations_background(player_instance):
-    """Calculate durations for all tracks in a background thread."""
-    logger.info("[INFO] Starting background duration calculation...")
-    if not player_instance or not player_instance.track_list:
-        logger.warning("[WARNING] Player or track list not available for duration calculation.")
-        return
-
-    # Use batch updates for better performance
-    batch_size = 20
-    duration_updates = {}
-    
-    for index, track in enumerate(player_instance.track_list):
-        if track['duration'] is None:
-            try:
-                duration = get_duration(track['path'])
-                track['duration'] = duration
-                # Add to batch update
-                duration_updates[track['path']] = duration
-                
-                # Periodically update cache in batches
-                if len(duration_updates) >= batch_size:
-                    if song_cache.update_batch(duration_updates):
-                        logger.info(f"[OK] Calculated duration for {index + 1}/{len(player_instance.track_list)} tracks...")
-                    duration_updates = {}  # Reset batch
-                    
-            except Exception as e:
-                logger.error(f"[ERROR] Error calculating duration for {track['name']}: {e}")
-                track['duration'] = -1  # Mark as error
-    
-    # Final batch update for durations
-    if duration_updates:
-        song_cache.update_batch(duration_updates)
-    
-    logger.info("[OK] Background duration calculation finished.")
-
-def update_player_with_normalized_tracks(normalized_paths):
-    """Callback to update player track list with newly normalized tracks."""
-    if not player:
-        logger.warning("[WARNING] Player not available to update with normalized tracks")
-        return
-        
-    # Update paths in the player's track list to use normalized versions
-    updated_count = 0
-    for i, track in enumerate(player.track_list):
-        original_path = track.get('path')
-        
-        # Skip already normalized tracks
-        if track.get('normalized', False):
-            continue
-            
-        # Find if this track has been normalized
-        for norm_path in normalized_paths:
-            # Check if this is the normalized version of the current track
-            rel_path = os.path.relpath(norm_path, audio_normalizer.normalized_folder)
-            orig_path = os.path.join(audio_normalizer.audio_folder, rel_path)
-            
-            if orig_path == original_path:
-                # Update to use the normalized version
-                logger.info(f"[NORMALIZE] Switching to normalized version: {norm_path}")
-                player.track_list[i]['path'] = norm_path
-                player.track_list[i]['normalized'] = True
-                updated_count += 1
-                break
-    
-    if updated_count > 0:
-        logger.info(f"[NORMALIZE] Updated {updated_count} tracks to use normalized versions")
-        # If currently playing a song that was normalized, reload it
-        current_track = player.track_list[player.current_index]
-        if current_track.get('normalized') and pygame.mixer.music.get_busy():
-            # Save position
-            pos = pygame.mixer.music.get_pos() / 1000.0  # Convert ms to seconds
-            # Reload the track
-            player.load_track(player.current_index)
-            # Resume from position if possible
-            if pos > 0:
-                pygame.mixer.music.play(start=pos)
 
 async def heartbeat_task(watchdog):
     """Task to periodically update the watchdog heartbeat."""
@@ -329,13 +92,15 @@ def pygame_event_handler():
                 state = player.current_state()
                 save_state(state)
                 
-                # Create a new event loop for this thread and use it to broadcast state
+                # Create a new event loop for this thread and run the async function
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
                 try:
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    new_loop.run_until_complete(async_broadcast_state(state))
+                    new_loop.run_until_complete(broadcast_state_change(state))
                 except Exception as e:
                     logger.error(f"[ERROR] Failed to broadcast state change: {e}")
+                finally:
+                    new_loop.close()
             
         # Track the current position for next loop
         if player and not player.paused and pygame.mixer.music.get_busy() == 1:
@@ -349,30 +114,25 @@ def pygame_event_handler():
         # Check for idle timeout - release resources if player has been inactive
         if player and current_time - last_activity > idle_timeout:
             if not pygame.mixer.music.get_busy() or player.paused:
-                logger.info("[IDLE] Player idle - releasing unused resources")
-                # Release resources when idle
-                player._cleanup_resources("all")
+                # Access memory_monitor through the global app object
+                app.memory_monitor.handle_idle_cleanup()
                 # Don't release again for another timeout period
                 last_local_activity = current_time
             
         time.sleep(0.1)  # Short sleep to prevent high CPU usage
 
-# Add a new async function to handle broadcasting state changes
-async def async_broadcast_state(state):
-    """Async wrapper for broadcast_state_change that ensures proper event loop usage."""
-    # Make a copy to avoid any potential thread safety issues
-    state_copy = state.copy() if state else {}
-    broadcast_state_change(state_copy)
-
 async def start_servers():
     """Start WebSocket and Flask servers"""
     # Create and start the watchdog
-    watchdog = Watchdog()
+    watchdog = Watchdog(check_interval=30, player=player, shutdown_event=shutdown_event)
     watchdog.start()
     
     # Create and start memory monitor
-    memory_monitor = MemoryMonitor()
+    memory_monitor = MemoryMonitor(check_interval=60, player=player, shutdown_event=shutdown_event)
     memory_monitor.start()
+    
+    # Make memory_monitor available to app for global access
+    app.memory_monitor = memory_monitor
     
     # Create heartbeat task
     heartbeat_task_obj = asyncio.create_task(heartbeat_task(watchdog))
@@ -385,8 +145,8 @@ async def start_servers():
         lambda ws, path: websocket_handler(ws, player, save_state),
         "0.0.0.0", 
         8765,
-        ping_interval=20,
-        ping_timeout=30
+        ping_interval=30,  # Increase ping interval to reduce network traffic
+        ping_timeout=60    # Increase timeout for better reliability with poor connections
     )
     
     # Start Flask in a separate thread but don't await it
@@ -433,7 +193,7 @@ async def start_servers():
 def get_audio_files_with_normalization(audio_folder, normalizer):
     """Get all audio files, with preference for normalized versions."""
     # Get all original audio files using song_cache instead of deprecated function
-    original_files = song_cache.get_cached_audio_files(audio_folder, get_duration)
+    original_files = song_cache.get_cached_audio_files(audio_folder, None)
     
     # Replace paths with normalized versions where available
     normalized_files = []
@@ -484,31 +244,25 @@ if __name__ == "__main__":
     audio_normalizer = AudioNormalizer(AUDIO_FOLDER)
     logger.info(f"[OK] Audio normalizer initialized, normalized files in {audio_normalizer.normalized_folder}")
 
-    # Load audio files with normalization support
-    audio_files, files_to_normalize = get_audio_files_with_normalization(AUDIO_FOLDER, audio_normalizer)
-
-    # Prune old cache entries
-    song_cache.prune_cache(max_age_days=90)
-
+    # Use the ensure_files_in_playlist function to make sure all normalized files are included
+    audio_files, files_to_normalize = ensure_files_in_playlist(None, song_cache, audio_normalizer, AUDIO_FOLDER)
+    
     # Initialize player
     try:
         player = PygamePlayer(audio_files)
+        # Set audio_normalizer in player
+        player.audio_normalizer = audio_normalizer
     except ValueError as e:
         logger.error(e)
         exit(1)
 
+    # Set player reference in audio normalizer
+    audio_normalizer.player = player
+
     # Start normalizing files after player is initialized
     if files_to_normalize:
         logger.info(f"[NORMALIZE] Starting normalization of {len(files_to_normalize)} files")
-        audio_normalizer.normalize_files_background(files_to_normalize, callback=update_player_with_normalized_tracks)
-
-    # Start background duration calculation
-    duration_thread = threading.Thread(
-        target=calculate_durations_background, 
-        args=(player,),
-        daemon=True
-    )
-    duration_thread.start()
+        audio_normalizer.normalize_files_background(files_to_normalize)
 
     # Setup routes
     setup_routes(app, AUDIO_FOLDER, player)

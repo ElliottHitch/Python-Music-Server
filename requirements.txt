@@ -4,6 +4,6 @@ mutagen==1.47.0
 pygame==2.5.2
 websockets==12.0
 # systemd-python is only needed for Raspberry Pi/Linux deployment. Uncomment if you are deploying on a Raspberry Pi/Linux system.
-systemd-python==235
-werkzeug==2.3.7
-psutil==5.9.6
+#systemd-python==235
+#werkzeug==2.3.7
+#psutil==5.9.6

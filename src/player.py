@@ -2,31 +2,11 @@ import os
 import random
 import logging
 import pygame
-import gc
 import threading
 import time
+from src.audio_format import format_duration, get_duration
 
 logger = logging.getLogger(__name__)
-
-def format_duration(seconds):
-    if seconds is None or seconds < 0:
-        return "--:--"
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    return f"{minutes}:{secs:02d}"
-
-def get_duration(file_path):
-    """Get audio file duration in seconds"""
-    try:
-        # Fast duration check for mp3
-        sound = pygame.mixer.Sound(file_path)
-        duration = sound.get_length()  # in seconds
-        # Release sound object to prevent memory leaks
-        del sound
-        return duration
-    except Exception as e:
-        logger.warning(f"[WARNING] Failed to get duration for {file_path}: {e}")
-        return None
 
 class PygamePlayer:
     def __init__(self, track_list):
@@ -50,13 +30,10 @@ class PygamePlayer:
         self._max_cache_size = 5  # Maximum number of cached items
         self.last_played = []  # Keep track of recently played for shuffle
         self.max_history = 10  # Maximum history size
+        self.audio_normalizer = None  # Reference to audio normalizer
         
         # Add lock for thread safety
         self._lock = threading.RLock()
-        
-        # Garbage collection tracking
-        self._cleanup_count = 0
-        self._last_gc_time = time.time()
         
         # Add thread for monitoring track end
         self._playback_monitor = None
@@ -65,56 +42,17 @@ class PygamePlayer:
         # Load first track
         self.load_track(self.current_index)
 
-    def _should_run_gc(self):
-        """
-        Determine if garbage collection should run based on 
-        frequency and time since last collection
-        """
-        current_time = time.time()
-        
-        # Run GC if it's been more than 5 minutes
-        if current_time - self._last_gc_time > 300:  # 5 minutes
-            self._last_gc_time = current_time
-            return True
-            
-        # Otherwise, run occasionally (10% chance after every 5 cleanups)
-        self._cleanup_count += 1
-        if self._cleanup_count >= 5 and random.random() < 0.1:
-            self._cleanup_count = 0
-            self._last_gc_time = current_time
-            return True
-            
-        return False
-
-    def _cleanup_resources(self, which="all"):
-        """
-        Clean up file resources
-        
-        Args:
-            which: What to clean up - "all", "current", or "next" (simplified version)
-        """
-        # We've simplified to direct file loading, so less cleanup needed
-        # Just log the cleanup for tracking
-        logger.debug(f"INFO: Cleanup requested ({which})")
-        
-        # Suggest garbage collection after cleanup, but only occasionally
-        if which == "all" and self._should_run_gc():
-            logger.debug("INFO: Running garbage collection after resource cleanup")
-            gc.collect()
-
     def load_track(self, index):
         """Load track at the specified index"""
         try:
             with self._lock:
-                # Clean up any existing resources before loading new track
-                self._cleanup_resources("all")
-                
                 # Clear pygame mixer if it's already initialized to free memory
                 if pygame.mixer.music.get_busy():
                     pygame.mixer.music.stop()
                     
-                # Track loading - check if we've exceeded reasonable memory usage
-                self._manage_cache()
+                # Manage cache if needed
+                if len(self._cache) > self._max_cache_size:
+                    self._manage_cache()
                 
                 # Keep track of path for cache management
                 current_path = self.track_list[index]['path']
@@ -130,29 +68,18 @@ class PygamePlayer:
 
     def _manage_cache(self):
         """Manage cache size to prevent memory issues"""
-        # If cache exceeds max size, clear oldest items
-        if len(self._cache) > self._max_cache_size:
-            logger.info(f"INFO: Clearing audio cache (size: {len(self._cache)})")
-            # Keep only the most recent half of items
-            keep_count = max(2, self._max_cache_size // 2)
-            keys_to_remove = list(self._cache.keys())[:-keep_count]
-            for key in keys_to_remove:
-                del self._cache[key]
-            
-            # Only run garbage collection occasionally
-            if self._should_run_gc():
-                logger.debug("INFO: Running garbage collection after cache cleanup")
-                gc.collect()
-            
+        logger.info(f"INFO: Clearing audio cache (size: {len(self._cache)})")
+        # Keep only the most recent half of items
+        keep_count = max(2, self._max_cache_size // 2)
+        keys_to_remove = list(self._cache.keys())[:-keep_count]
+        for key in keys_to_remove:
+            del self._cache[key]
+
     def clear_cache(self):
         """Clear the entire cache to free memory"""
         if self._cache:
             logger.info(f"INFO: Clearing entire audio cache (size: {len(self._cache)})")
             self._cache.clear()
-            
-            # Always run GC after a full cache clear
-            self._last_gc_time = time.time()
-            gc.collect()
             return True
         return False
 
@@ -299,12 +226,43 @@ class PygamePlayer:
                 raise FileNotFoundError(f"ERROR: File not found: {file_path}")
             
             try:
-                # If the current track is being deleted, stop it first
-                if index == self.current_index and pygame.mixer.music.get_busy():
-                    pygame.mixer.music.stop()
+                # If the current track is being deleted, load the next one first
+                is_current_track = (index == self.current_index)
+                if is_current_track:
+                    if pygame.mixer.music.get_busy():
+                        pygame.mixer.music.stop()
+                    
+                    # If we're deleting the current track and there are more tracks,
+                    # move to the next track before removing this one
+                    if len(self.track_list) > 1:
+                        # Calculate the new index to play (next song)
+                        next_index = (index + 1) % len(self.track_list)
+                        # Load and start this track
+                        self.current_index = next_index
+                        self.load_track(self.current_index)
+                        self.start_track()
+                
+                # Delete normalized version if it exists
+                if self.audio_normalizer:
+                    # Check if this is a normalized file
+                    norm_folder = self.audio_normalizer.normalized_folder
+                    if os.path.normpath(file_path).startswith(os.path.normpath(norm_folder)):
+                        # This is a normalized file, delete the original too
+                        rel_path = os.path.relpath(file_path, norm_folder)
+                        original_path = os.path.join(self.audio_normalizer.audio_folder, rel_path)
+                        if os.path.exists(original_path):
+                            os.remove(original_path)
+                            logger.info(f"[DELETE] Removed original file: {original_path}")
+                    else:
+                        # This is an original file, delete the normalized version
+                        normalized_path = self.audio_normalizer.get_normalized_path(file_path)
+                        if os.path.exists(normalized_path):
+                            os.remove(normalized_path)
+                            logger.info(f"[DELETE] Removed normalized file: {normalized_path}")
                 
                 # Remove the file
                 os.remove(file_path)
+                logger.info(f"[DELETE] Removed file: {file_path}")
                 
                 # Update the playlist
                 del self.track_list[index]
@@ -315,15 +273,10 @@ class PygamePlayer:
                     self.paused = True
                     return
                 
-                # Adjust current_index if the deleted track was before it
-                if index < self.current_index:
+                # If we deleted a track before the current one, adjust the index
+                if not is_current_track and index < self.current_index:
                     self.current_index -= 1
-                # If we deleted the current track, load the next one
-                elif index == self.current_index:
-                    if self.current_index >= len(self.track_list):
-                        self.current_index = 0
-                    self.load_track(self.current_index)
-                    self.start_track()
+                
             except PermissionError:
                 logger.error(f"[ERROR] Permission denied when deleting {song['name']}")
                 raise PermissionError(f"Cannot delete file: Permission denied for {file_path}")
@@ -354,7 +307,6 @@ class PygamePlayer:
         if self._playback_monitor and self._playback_monitor.is_alive():
             self._playback_monitor.join(timeout=1.0)
             
-        self._cleanup_resources("all")
         self.clear_cache()
         try:
             pygame.mixer.music.stop()
