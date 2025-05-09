@@ -41,20 +41,16 @@ class MemoryMonitor:
         while self.running and (not self.shutdown_event or not self.shutdown_event.is_set()):
             try:
                 current_time = time.time()
-                # Get memory usage as percentage
                 memory_percent = psutil.virtual_memory().percent
-                process_memory = self.process.memory_info().rss / 1024 / 1024  # MB
+                process_memory = self.process.memory_info().rss / 1024 / 1024  
                 
-                # Log memory usage every interval
                 logger.info(f"[MEMORY] Memory usage: System {memory_percent:.1f}%, Process {process_memory:.1f}MB")
                 
-                # If memory usage is high AND we haven't run GC recently, trigger garbage collection
                 if (memory_percent > self.gc_threshold and 
                     current_time - self.last_gc_time > self.gc_min_interval):
                     self.force_garbage_collection()
                     self.last_gc_time = current_time
                 
-                # If memory usage is critical, take more aggressive action regardless of timing
                 if memory_percent > self.critical_threshold:
                     self.handle_critical_memory()
                     self.last_gc_time = current_time
@@ -75,31 +71,26 @@ class MemoryMonitor:
         """Handle critical memory situation by taking aggressive actions."""
         logger.warning("[CRITICAL] CRITICAL MEMORY THRESHOLD EXCEEDED!")
         
-        # Force more aggressive garbage collection
         logger.info("[CLEANUP] Performing full garbage collection")
-        gc.collect(2)  # Full collection
+        gc.collect(2)  
         
-        # Clean up player resources if available
         if self.player:
             if hasattr(self.player, '_cleanup_resources'):
                 logger.info("[CLEANUP] Cleaning up all player resources")
                 self.player._cleanup_resources("all")
                 
-            # Clear any in-memory caches if they exist
             if hasattr(self.player, 'clear_cache'):
                 logger.info("[CLEANUP] Clearing player cache")
                 self.player.clear_cache()
         
-        # Log memory after cleanup
         memory_percent = psutil.virtual_memory().percent
-        process_memory = self.process.memory_info().rss / 1024 / 1024  # MB
+        process_memory = self.process.memory_info().rss / 1024 / 1024  
         logger.info(f"[MEMORY] Memory after cleanup: System {memory_percent:.1f}%, Process {process_memory:.1f}MB")
     
     def handle_idle_cleanup(self):
         """Handle resource cleanup when player is idle."""
         logger.info("[IDLE] Player idle - releasing unused resources")
         
-        # Clean up player resources if available
         if self.player and hasattr(self.player, '_cleanup_resources'):
             self.player._cleanup_resources("all")
             return True

@@ -16,15 +16,12 @@ def ensure_files_in_playlist(player, song_cache, normalizer, audio_folder):
     """
     logger.info(f"Performing playlist rebuild for folder: {audio_folder}")
     
-    # First, clear the cache to force a fresh scan
     song_cache.cache['files'] = {}
     song_cache.modified = True
     
-    # Get all original files with a full fresh scan - don't check durations
     original_files = song_cache.get_cached_audio_files(audio_folder, None)
     logger.info(f"Found {len(original_files)} files in audio folder")
     
-    # Create a playlist with normalized files where available
     normalized_files = []
     normalized_count = 0
     files_to_normalize = []
@@ -32,9 +29,7 @@ def ensure_files_in_playlist(player, song_cache, normalizer, audio_folder):
     for file_info in original_files:
         original_path = file_info['path']
         
-        # Check if a normalized version exists
         if normalizer and normalizer.is_normalized(original_path):
-            # Use the normalized version
             normalized_path = normalizer.get_normalized_path(original_path)
             file_info['path'] = normalized_path
             file_info['normalized'] = True
@@ -45,12 +40,10 @@ def ensure_files_in_playlist(player, song_cache, normalizer, audio_folder):
             
         normalized_files.append(file_info)
     
-    # Update player's track list if player is provided
     if player:
         player.track_list = normalized_files
         logger.info(f"Updated player with {len(normalized_files)} tracks ({normalized_count} normalized)")
     
-    # Ensure the cache is saved
     song_cache.flush()
     
     logger.info(f"Playlist rebuild complete: {len(normalized_files)} tracks, {normalized_count} normalized")
@@ -61,24 +54,21 @@ def download_youtube_audio(youtube_url, output_folder, headers, normalizer=None,
     Download audio from YouTube URL using yt-dlp's 'ba' preset alias for best audio,
     normalize it, and refresh the playlist
     """
-    # Ensure output directory exists
     os.makedirs(output_folder, exist_ok=True)
     
     try:
         logger.info(f"Downloading audio from: {youtube_url}")
         
-        # Build command for yt-dlp to download as MP3
         cmd = [
             "yt-dlp",
-            "-f", "ba",  # 'ba' preset alias for best audio
-            "--extract-audio",  # Extract audio from video
-            "--audio-format", "mp3",  # Convert to mp3 format
-            "--audio-quality", "0",  # Best quality
+            "-f", "ba", 
+            "--extract-audio", 
+            "--audio-format", "mp3", 
+            "--audio-quality", "0", 
             "--output", os.path.join(output_folder, "%(title)s.%(ext)s"),
             youtube_url
         ]
         
-        # Run the command
         result = subprocess.run(
             cmd, 
             capture_output=True, 
@@ -86,9 +76,7 @@ def download_youtube_audio(youtube_url, output_folder, headers, normalizer=None,
             check=False
         )
         
-        # Check if successful
         if result.returncode == 0:
-            # Extract the output file path from yt-dlp output
             filepath = None
             for line in result.stdout.split('\n'):
                 if "[download]" in line and "Destination: " in line:
@@ -101,16 +89,13 @@ def download_youtube_audio(youtube_url, output_folder, headers, normalizer=None,
                     filepath = line.split("[ExtractAudio] Destination: ")[1].strip()
             
             if filepath:
-                # If filepath doesn't end with .mp3, it might be the temporary file before conversion
                 if not filepath.lower().endswith('.mp3'):
-                    # Try to find the mp3 file that was created
                     base_file = os.path.splitext(filepath)[0]
                     mp3_path = f"{base_file}.mp3"
                     if os.path.exists(mp3_path):
                         filepath = mp3_path
                         logger.info(f"Located MP3 file at: {filepath}")
                 
-                # Normalize the audio file immediately if normalizer is provided
                 if normalizer:
                     logger.info(f"Normalizing downloaded file: {filepath}")
                     try:
@@ -121,9 +106,7 @@ def download_youtube_audio(youtube_url, output_folder, headers, normalizer=None,
                     except Exception as e:
                         logger.error(f"Normalization failed: {e}")
                 
-                # Refresh player's track list if player is provided
                 if player and hasattr(player, 'song_cache'):
-                    # Update the playlist with the new file
                     updated_playlist, _ = ensure_files_in_playlist(
                         player, 
                         player.song_cache, 

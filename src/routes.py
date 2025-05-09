@@ -39,14 +39,11 @@ def setup_routes(app, audio_folder, player):
             'Connection': 'keep-alive'
         }
 
-        # Get the normalizer if available
         normalizer = getattr(app, 'audio_normalizer', None)
         
-        # Make sure the player has access to the song cache
         if hasattr(app, 'song_cache') and not hasattr(player, 'song_cache'):
             player.song_cache = app.song_cache
             
-        # Call download with normalizer and player
         success, message = download_youtube_audio(
             youtube_url, 
             audio_folder, 
@@ -56,8 +53,6 @@ def setup_routes(app, audio_folder, player):
         )
         
         if success:
-            # Since normalization and playlist refresh are handled in the download function,
-            # we just need to return the success message
             return jsonify({"message": message})
         else:
             return jsonify({"message": message}), 500
@@ -66,10 +61,9 @@ def setup_routes(app, audio_folder, player):
     def manage_memory():
         """Get system memory information or optimize memory usage"""
         try:
-            # Get current memory info
             vm = psutil.virtual_memory()
             process = psutil.Process(os.getpid())
-            process_memory = process.memory_info().rss / 1024 / 1024  # MB
+            process_memory = process.memory_info().rss / 1024 / 1024  
             
             memory_info = {
                 "total": vm.total / 1024 / 1024,  # MB
@@ -79,26 +73,20 @@ def setup_routes(app, audio_folder, player):
                 "cache_size": len(player._cache) if hasattr(player, '_cache') else 0
             }
             
-            # If it's a GET request, just return the memory info
             if request.method == "GET":
                 return jsonify(memory_info)
             
-            # If it's a POST request, optimize memory
             elif request.method == "POST":
-                # Force Python garbage collection
-                gc.collect(2)  # Full collection
+                gc.collect(2)  
                 
-                # Clear player cache if it exists
                 cache_cleared = False
                 if hasattr(player, 'clear_cache'):
                     player.clear_cache()
                     cache_cleared = True
                     
-                # Get updated memory info after optimization
                 vm = psutil.virtual_memory()
-                process_memory = process.memory_info().rss / 1024 / 1024  # MB
+                process_memory = process.memory_info().rss / 1024 / 1024  
                 
-                # Update memory info with post-optimization values
                 memory_info.update({
                     "available": vm.available / 1024 / 1024,
                     "used_percent": vm.percent,
@@ -118,7 +106,6 @@ def setup_routes(app, audio_folder, player):
         """Get cache information or clear cache"""
         try:
             if request.method == "GET":
-                # Get cache stats if possible
                 if hasattr(app, 'song_cache'):
                     song_cache = app.song_cache
                     cache_stats = {
@@ -133,7 +120,6 @@ def setup_routes(app, audio_folder, player):
                 action = request.json.get('action', '')
                 
                 if action == 'clear' and hasattr(app, 'song_cache'):
-                    # Clear the entire cache
                     song_cache = app.song_cache
                     song_cache.cache['files'] = {}
                     song_cache.modified = True
@@ -141,7 +127,6 @@ def setup_routes(app, audio_folder, player):
                     return jsonify({"message": "Cache cleared successfully"})
                     
                 elif action == 'refresh' and hasattr(app, 'song_cache'):
-                    # Rebuild the playlist with normalized files
                     normalizer = getattr(app, 'audio_normalizer', None)
                     playlist, files_to_normalize = ensure_files_in_playlist(
                         player, 
@@ -150,7 +135,6 @@ def setup_routes(app, audio_folder, player):
                         app.config['AUDIO_FOLDER']
                     )
                     
-                    # Start normalizing files in the background if needed
                     if normalizer and files_to_normalize:
                         normalizer.normalize_files_background(files_to_normalize)
                         
@@ -169,18 +153,15 @@ def setup_routes(app, audio_folder, player):
     def manage_normalization():
         """Get normalization status or trigger normalization"""
         try:
-            # Get normalizer from app
             normalizer = getattr(app, 'audio_normalizer', None)
             if normalizer is None:
                 return jsonify({"error": "Audio normalizer not available"}), 500
                 
             if request.method == "GET":
-                # Count how many files are normalized and how many need normalization
                 normalized_count = 0
                 pending_count = 0
                 normalized_folder = normalizer.normalized_folder
                 
-                # Check if the normalized folder exists
                 if os.path.exists(normalized_folder):
                     for track in player.track_list:
                         original_path = track['path']
@@ -201,7 +182,6 @@ def setup_routes(app, audio_folder, player):
                 action = request.json.get('action', '')
                 
                 if action == 'normalize_all':
-                    # Normalize all files that aren't already normalized
                     files_to_normalize = []
                     for track in player.track_list:
                         original_path = track['path']
@@ -209,7 +189,6 @@ def setup_routes(app, audio_folder, player):
                             files_to_normalize.append(original_path)
                     
                     if files_to_normalize:
-                        # Start normalization in background with built-in callback
                         normalizer.normalize_files_background(files_to_normalize)
                         return jsonify({
                             "message": f"Started normalization of {len(files_to_normalize)} files",
@@ -219,16 +198,13 @@ def setup_routes(app, audio_folder, player):
                         return jsonify({"message": "All files are already normalized"})
                         
                 elif action == 'normalize_file':
-                    # Normalize a specific file
                     file_path = request.json.get('file_path')
                     if not file_path:
                         return jsonify({"error": "No file path provided"}), 400
                         
-                    # Check if the file exists
                     if not os.path.exists(file_path):
                         return jsonify({"error": f"File not found: {file_path}"}), 404
                         
-                    # Start normalization in background
                     normalizer.normalize_files_background([file_path])
                     return jsonify({"message": f"Started normalization of file: {os.path.basename(file_path)}"})
                     
@@ -239,7 +215,6 @@ def setup_routes(app, audio_folder, player):
             logging.error(f"Error in normalize route: {e}")
             return jsonify({"error": str(e)}), 500
 
-    # Route for reloading songs
     @app.route('/api/reload', methods=['POST'])
     @cross_origin()
     def reload_songs():
@@ -247,7 +222,6 @@ def setup_routes(app, audio_folder, player):
             audio_folder = app.config['AUDIO_FOLDER']
             normalizer = getattr(app, 'audio_normalizer', None)
             
-            # Rebuild the playlist with normalized files
             playlist, files_to_normalize = ensure_files_in_playlist(
                 player, 
                 app.song_cache,
@@ -255,11 +229,9 @@ def setup_routes(app, audio_folder, player):
                 audio_folder
             )
             
-            # Start normalizing files in the background if needed
             if normalizer and files_to_normalize:
                 normalizer.normalize_files_background(files_to_normalize)
             
-            # Reload current track
             player.current_index = min(player.current_index, len(player.track_list) - 1)
             player.load_track(player.current_index)
             
@@ -268,7 +240,6 @@ def setup_routes(app, audio_folder, player):
             logger.error(f"[ERROR] Error reloading songs: {e}")
             return jsonify({"error": str(e)}), 500
             
-    # Route for downloading audio from YouTube
     @app.route('/api/download-youtube', methods=['POST'])
     @cross_origin()
     def download_youtube():
@@ -288,14 +259,11 @@ def setup_routes(app, audio_folder, player):
             'Connection': 'keep-alive'
         }
         
-        # Get the normalizer if available
         normalizer = getattr(app, 'audio_normalizer', None)
         
-        # Make sure the player has access to the song cache
         if hasattr(app, 'song_cache') and not hasattr(player, 'song_cache'):
             player.song_cache = app.song_cache
             
-        # Call download with normalizer and player
         success, message = download_youtube_audio(
             url, 
             audio_folder, 
@@ -305,8 +273,6 @@ def setup_routes(app, audio_folder, player):
         )
         
         if success:
-            # Since normalization and playlist refresh are handled in the download function,
-            # we just need to return the success message
             return jsonify({"message": message})
         else:
             return jsonify({"message": message}), 500
@@ -325,16 +291,13 @@ def setup_routes(app, audio_folder, player):
         audio_folder = app.config['AUDIO_FOLDER']
         upload_path = os.path.join(audio_folder, filename)
 
-        # Save the uploaded file
         file.save(upload_path)
 
-        # Normalize immediately if requested
         if request.form.get('normalize', 'false').lower() == 'true':
             normalizer = getattr(app, 'audio_normalizer', None)
             if normalizer:
                 normalizer.normalize_file(upload_path)
             
-        # Update the player's track list
         if player:
             normalizer = getattr(app, 'audio_normalizer', None)
             playlist, files_to_normalize = ensure_files_in_playlist(
@@ -344,7 +307,6 @@ def setup_routes(app, audio_folder, player):
                 audio_folder
             )
             
-            # Start normalizing files in the background if not already normalized
             if normalizer and files_to_normalize and not request.form.get('normalize', 'false').lower() == 'true':
                 normalizer.normalize_files_background(files_to_normalize)
                 

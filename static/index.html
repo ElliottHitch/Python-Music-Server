@@ -12,12 +12,10 @@
     const wsPort = 8765;
     const wsUrl = `${wsProtocol}://${window.location.hostname}:${wsPort}`;
     let reconnectTimer = null;
-    let reconnectDelay = 1000; // Start with 1s, will increase with backoff
-    let lastState = {}; // Cache the last state to avoid duplicate updates
+    let reconnectDelay = 1000;
+    let lastState = {};
 
-    // Connect to the websocket server with simplified reconnection
     const connectWebSocket = () => {
-      // Clear any existing reconnect timer
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -29,7 +27,7 @@
       
       websocket.onopen = () => {
         console.log("Connected to WebSocket server");
-        reconnectDelay = 1000; // Reset delay on successful connection
+        reconnectDelay = 1000;
         setStatus("Connected", 1000);
       };
       
@@ -64,16 +62,13 @@
       websocket.onclose = () => {
         console.log(`WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
         
-        // Implement exponential backoff for reconnection
         reconnectTimer = setTimeout(() => {
           connectWebSocket();
-          // Increase delay for next reconnection (max 30s)
           reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
         }, reconnectDelay);
       };
     };
 
-    // Improved status display function
     const setStatus = (message, timeout = 5000) => {
       const statusEl = document.getElementById('status');
       if (!statusEl) return;
@@ -88,7 +83,6 @@
       }
     };
 
-    // Improved command sending with simplified retry
     const sendCommand = (command) => {
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         websocket.send(command);
@@ -100,7 +94,6 @@
       }
     };
 
-    // Control functions.
     const playPauseToggle = () => sendCommand(isPaused ? "play" : "pause");
     const playSong = index => sendCommand(`play:${index}`);
     const setVolume = volume => sendCommand(`volume:${volume}`);
@@ -120,7 +113,6 @@
       requestAnimationFrame(animateScrollStep);
     };
 
-    // Update UI based on received state.
     const updateUI = state => {
       document.getElementById('volumeSlider').value = state.volume;
       isPaused = state.paused;
@@ -129,7 +121,6 @@
       const shuffleBtn = document.getElementById('shuffleButton');
       state.shuffle ? shuffleBtn.classList.add('active') : shuffleBtn.classList.remove('active');
       
-      // Highlight active song row and center it.
       const container = document.querySelector('.table-container');
       const rows = document.querySelectorAll('#songsTable tbody tr');
       rows.forEach((row, index) => {
@@ -143,7 +134,6 @@
       });
     };
 
-    // Populate the songs table.
     const populateSongs = songsList => {
       const tbody = document.querySelector('#songsTable tbody');
       tbody.innerHTML = "";
@@ -160,7 +150,6 @@
       });
     };
 
-    // Search filtering and recentering.
     const handleSearch = e => {
       const query = e.target.value.toLowerCase();
       const rows = document.querySelectorAll('#songsTable tbody tr');
@@ -176,7 +165,6 @@
       }
     };
 
-    // Download and deletion functions.
     const downloadYouTubeSong = () => {
       const url = document.getElementById('youtubeURL').value;
       if (!url) {
@@ -191,7 +179,6 @@
       .then(response => response.json())
       .then(data => {
         setStatus(data.message, 5000);
-        // Refresh the playlist after 2 seconds.
         setTimeout(() => { location.reload(); }, 2000);
       })
       .catch(err => {
@@ -207,7 +194,6 @@
         return;
       }
       const songName = activeRow.querySelector('td').innerText;
-      // Show custom confirmation message.
       const statusEl = document.getElementById('status');
       statusEl.innerHTML = `Are you sure you want to delete "<strong>${songName}</strong>"? 
                              <button id="confirmDelete">Yes</button> 
@@ -223,7 +209,6 @@
       });
     };
 
-    // Setup event listeners on window load.
     window.onload = () => {
       connectWebSocket();
       document.getElementById('playPauseButton').addEventListener('click', playPauseToggle);

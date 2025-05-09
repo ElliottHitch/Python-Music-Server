@@ -5,9 +5,8 @@ import threading
 import logging
 import pygame
 
-# Optional systemd integration
 try:
-    import systemd.daemon  # type: ignore
+    import systemd.daemon 
     has_systemd = True
 except ImportError:
     has_systemd = False
@@ -41,7 +40,6 @@ class Watchdog:
     def heartbeat(self):
         """Update the heartbeat timestamp."""
         self.last_heartbeat = time.time()
-        # Send systemd watchdog notification if available
         if has_systemd:
             try:
                 systemd.daemon.notify("WATCHDOG=1")
@@ -53,13 +51,11 @@ class Watchdog:
         while self.running and (not self.shutdown_event or not self.shutdown_event.is_set()):
             time_since_heartbeat = time.time() - self.last_heartbeat
             
-            # If no heartbeat for more than 2x the interval, restart
             if time_since_heartbeat > (self.check_interval * 2):
                 logger.error(f"[ERROR] Watchdog detected no heartbeat for {time_since_heartbeat:.1f} seconds. Restarting application...")
                 self._restart_application()
                 return
                 
-            # Check other critical components
             try:
                 if self.player and not pygame.mixer.get_init():
                     logger.error("[ERROR] Watchdog detected pygame mixer failure. Restarting application...")
@@ -78,17 +74,14 @@ class Watchdog:
         self.restart_in_progress = True
         logger.info("[RESTART] Initiating application restart...")
         
-        # Save state before restarting
         if self.player:
             from src.config import save_state
             save_state(self.player.current_state())
             
-        # Use os.execv to restart the current process
         try:
             os.execv(sys.executable, ['python'] + sys.argv)
         except Exception as e:
             logger.error(f"[ERROR] Failed to restart application: {e}")
-            # If we can't restart, exit and let the external watchdog handle it
             os._exit(1)
     
     def stop(self):

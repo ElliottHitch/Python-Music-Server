@@ -30,8 +30,7 @@ def get_duration(file_path):
     """
     try:
         sound = pygame.mixer.Sound(file_path)
-        duration = sound.get_length()  # in seconds
-        # Release sound object to prevent memory leaks
+        duration = sound.get_length() 
         del sound
         return duration
     except Exception as e:
