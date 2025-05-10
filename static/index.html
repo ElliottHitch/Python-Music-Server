@@ -86,11 +86,13 @@
             songs = data.songs;
             populateSongs(songs);
             
-            // Always update UI after populating songs
-            // This ensures the active class is applied correctly
-            if (lastState && Object.keys(lastState).length > 0) {
-              updateUI(lastState);
-            }
+            // Add a small delay before updating UI to ensure the DOM is ready
+            // This helps with cases where songs are populated but we need to highlight active
+            setTimeout(() => {
+              if (lastState && Object.keys(lastState).length > 0) {
+                updateUI(lastState);
+              }
+            }, 50);
           } else if (data.state) {
             // Only update UI for state changes if not handling songs at the same time
             updateUI(data.state);
@@ -162,23 +164,62 @@
     };
 
     const updateUI = state => {
+      // Only proceed if we have a valid state with current_index
+      if (!state || typeof state.current_index !== 'number') {
+        console.error("Invalid state object received:", state);
+        return;
+      }
+      
       isPaused = state.paused;
       document.getElementById('playPauseIcon').src = state.paused ?
           '/static/icons/svg/filled/play.svg' : '/static/icons/svg/filled/pause.svg';
       const shuffleBtn = document.getElementById('shuffleButton');
       state.shuffle ? shuffleBtn.classList.add('active') : shuffleBtn.classList.remove('active');
       
+      // Handle song highlighting and scrolling
+      highlightAndScrollToActiveTrack(state.current_index);
+    };
+
+    // Separate function to handle highlighting and scrolling to active track
+    const highlightAndScrollToActiveTrack = (currentIndex) => {
       const container = document.querySelector('.table-container');
+      if (!container) {
+        console.error("Table container not found");
+        return;
+      }
+      
       const rows = document.querySelectorAll('#songsTable tbody tr');
-      rows.forEach((row, index) => {
-        if (index === state.current_index) {
-          row.classList.add('active');
-          const offset = row.offsetTop - (container.clientHeight / 2) + (row.clientHeight / 2);
-          animateScroll(container, offset, 500);
-        } else {
-          row.classList.remove('active');
-        }
-      });
+      if (!rows.length) {
+        console.error("No song rows found");
+        return;
+      }
+      
+      // First remove active class from all rows
+      rows.forEach(row => row.classList.remove('active'));
+      
+      // Find the row that should be active
+      const activeRow = rows[currentIndex];
+      if (!activeRow) {
+        console.error(`No row found at index ${currentIndex}`);
+        return;
+      }
+      
+      // Add active class to the current track
+      activeRow.classList.add('active');
+      
+      // Calculate scroll position to center the active song
+      const offset = activeRow.offsetTop - (container.clientHeight / 2) + (activeRow.clientHeight / 2);
+      
+      // Only scroll if the element is not already fully visible
+      const rowTop = activeRow.offsetTop;
+      const rowBottom = rowTop + activeRow.offsetHeight;
+      const containerTop = container.scrollTop;
+      const containerBottom = containerTop + container.clientHeight;
+      
+      if (rowTop < containerTop || rowBottom > containerBottom) {
+        // Animate scrolling only if the row is outside the visible area
+        animateScroll(container, offset, 500);
+      }
     };
 
     const populateSongs = songsList => {
@@ -189,10 +230,22 @@
         const cell = row.insertCell(0);
         cell.innerText = song.name;
         row.addEventListener('click', () => {
+            // First send the command to play this song
             playSong(index);
+            
+            // Clear the search box and reset the display
             const searchBox = document.getElementById('search');
             searchBox.value = '';
             searchBox.dispatchEvent(new Event('input'));
+            
+            // Manually set this row as active immediately for better UX
+            // Server will eventually confirm this, but this makes the UI feel more responsive
+            document.querySelectorAll('#songsTable tbody tr').forEach((r, i) => {
+                r.classList.toggle('active', i === index);
+            });
+            
+            // Scroll to the clicked row
+            highlightAndScrollToActiveTrack(index);
         });
       });
     };
@@ -200,15 +253,49 @@
     const handleSearch = e => {
       const query = e.target.value.toLowerCase();
       const rows = document.querySelectorAll('#songsTable tbody tr');
+      let activeIndex = -1;
+      let matchCount = 0;
+      
+      // Find the currently active row before changing display
+      rows.forEach((row, index) => {
+        if (row.classList.contains('active')) {
+          activeIndex = index;
+        }
+      });
+      
+      // Apply search filtering
       rows.forEach(row => {
         const cellText = row.querySelector('td').innerText.toLowerCase();
-        row.style.display = cellText.includes(query) ? '' : 'none';
+        const matches = cellText.includes(query);
+        row.style.display = matches ? '' : 'none';
+        if (matches) {
+          matchCount++;
+        }
       });
+      
+      // Handle empty query case
       if (query === "") {
         rows.forEach(row => row.style.display = '');
-        const container = document.querySelector('.table-container');
-        const newScrollTop = (container.scrollHeight - container.clientHeight) / 2;
-        animateScroll(container, newScrollTop, 500);
+        
+        // If we have an active track, scroll to it
+        if (activeIndex >= 0 && rows[activeIndex]) {
+          setTimeout(() => {
+            highlightAndScrollToActiveTrack(activeIndex);
+          }, 50);
+        } else {
+          // If no active track, center the list
+          const container = document.querySelector('.table-container');
+          const newScrollTop = (container.scrollHeight - container.clientHeight) / 2;
+          animateScroll(container, newScrollTop, 500);
+        }
+      } else if (matchCount > 0 && activeIndex >= 0) {
+        // If we have an active track and it's visible after filtering, scroll to it
+        const activeRow = rows[activeIndex];
+        if (activeRow && activeRow.style.display !== 'none') {
+          setTimeout(() => {
+            highlightAndScrollToActiveTrack(activeIndex);
+          }, 50);
+        }
       }
     };
 
