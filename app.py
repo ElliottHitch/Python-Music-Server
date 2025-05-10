@@ -6,6 +6,7 @@ import threading
 import pygame
 import websockets
 import time
+import schedule
 import signal
 import sys
 import gc
@@ -33,6 +34,100 @@ except ImportError:
 
 setup_logger()
 logger = logging.getLogger(__name__)
+def setup_scheduler(player_instance):
+    # Get scheduled times from config or use defaults
+    pause_time = config.get("scheduler", {}).get("pause_time", "19:00")
+    resume_time = config.get("scheduler", {}).get("resume_time", "10:00")
+    
+    logger.info(f"[SCHEDULER] Configured to pause at {pause_time} and resume at {resume_time}")
+    
+    # Define functions for scheduled tasks with proper logging
+    def scheduled_pause():
+        try:
+            logger.info("[SCHEDULER] Running scheduled pause task")
+            if player_instance is None:
+                logger.warning("[SCHEDULER] Player not available for scheduled pause")
+                return
+                
+            if not player_instance.paused:
+                player_instance.pause()
+                logger.info("[SCHEDULER] Executed scheduled pause")
+                # Save state after pause
+                save_state(player_instance.current_state())
+                # Broadcast state change to clients
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    new_loop.run_until_complete(broadcast_state_change(player_instance.current_state()))
+                except Exception as e:
+                    logger.error(f"[SCHEDULER] Failed to broadcast pause state change: {e}")
+                finally:
+                    new_loop.close()
+            else:
+                logger.info("[SCHEDULER] Player already paused, no action needed")
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Error during scheduled pause: {e}")
+    
+    def scheduled_resume():
+        try:
+            logger.info("[SCHEDULER] Running scheduled resume task")
+            if player_instance is None:
+                logger.warning("[SCHEDULER] Player not available for scheduled resume")
+                return
+                
+            if player_instance.paused:
+                player_instance.play()
+                logger.info("[SCHEDULER] Executed scheduled resume")
+                # Save state after resume
+                save_state(player_instance.current_state())
+                # Broadcast state change to clients
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    new_loop.run_until_complete(broadcast_state_change(player_instance.current_state()))
+                except Exception as e:
+                    logger.error(f"[SCHEDULER] Failed to broadcast resume state change: {e}")
+                finally:
+                    new_loop.close()
+            else:
+                logger.info("[SCHEDULER] Player already playing, no action needed")
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Error during scheduled resume: {e}")
+    
+    # Clear any existing scheduled jobs that might be left over
+    schedule.clear()
+    
+    # Schedule the tasks
+    schedule.every().day.at(pause_time).do(scheduled_pause)
+    schedule.every().day.at(resume_time).do(scheduled_resume)
+    
+    # Run the scheduler in a separate thread
+    def run_scheduler():
+        logger.info("[SCHEDULER] Scheduler thread started")
+        next_run = None
+        
+        while not shutdown_event.is_set():
+            try:
+                # Get next job run time for logging
+                if schedule.get_jobs() and next_run != schedule.next_run():
+                    next_run = schedule.next_run()
+                    if next_run:
+                        logger.info(f"[SCHEDULER] Next job will run at {next_run.strftime('%H:%M:%S')}")
+                
+                # Check pending tasks
+                schedule.run_pending()
+            except Exception as e:
+                logger.error(f"[SCHEDULER] Error in scheduler: {e}")
+            time.sleep(1)
+        
+        logger.info("[SCHEDULER] Scheduler thread stopped")
+    
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.name = "SchedulerThread"
+    scheduler_thread.start()
+    logger.info(f"[SCHEDULER] Scheduler thread '{scheduler_thread.name}' started with id {scheduler_thread.ident}")
+    return scheduler_thread
+
 
 # Global variables
 app = Flask(__name__, static_url_path='/static', static_folder='static')
@@ -41,7 +136,8 @@ config = load_config()
 AUDIO_FOLDER = config["audio_folder"]
 shutdown_event = threading.Event()
 restart_in_progress = False
-song_cache = SongCache() 
+song_cache = SongCache()
+scheduler_thread = None
 
 def setup_cleanup_handlers():
     """Setup cleanup handlers for graceful shutdown"""
@@ -59,6 +155,7 @@ def signal_handler(sig, frame):
     if player:
         player.cleanup()  
         save_state(player.current_state())
+    logger.info("[SHUTDOWN] Waiting for threads to complete...")
     sys.exit(0)
 
 async def heartbeat_task(watchdog):
@@ -244,6 +341,9 @@ if __name__ == "__main__":
     
     # Initialize the application
     init_app()
+    
+    # Set up the scheduler after player is initialized
+    scheduler_thread = setup_scheduler(player)
     
     # Start the servers
     asyncio.run(start_servers()) 

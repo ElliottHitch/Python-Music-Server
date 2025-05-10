@@ -10,6 +10,7 @@ import subprocess
 from src.downloader import download_youtube_audio, ensure_files_in_playlist
 from flask_cors import cross_origin
 from src.audio_format import get_duration, format_duration
+import schedule
 
 logger = logging.getLogger(__name__)
 
@@ -310,4 +311,66 @@ def setup_routes(app, audio_folder, player):
             if normalizer and files_to_normalize and not request.form.get('normalize', 'false').lower() == 'true':
                 normalizer.normalize_files_background(files_to_normalize)
                 
-        return jsonify({"message": "File uploaded successfully", "filename": filename}) 
+        return jsonify({"message": "File uploaded successfully", "filename": filename})
+
+    @app.route('/api/status')
+    def api_status():
+        """Return player status as JSON"""
+        if not player:
+            return jsonify({"error": "Player not initialized"}), 500
+            
+        return jsonify(player.current_state())
+        
+    @app.route('/api/scheduler/status')
+    def scheduler_status():
+        """Return scheduler status for diagnostics"""
+        try:
+            jobs = []
+            for job in schedule.get_jobs():
+                # Extract job information
+                jobs.append({
+                    "tags": list(job.tags),
+                    "next_run": str(job.next_run) if job.next_run else None,
+                    "last_run": str(job.last_run) if hasattr(job, 'last_run') else None,
+                    "schedule_info": str(job),
+                })
+            
+            return jsonify({
+                "jobs": jobs,
+                "next_run": str(schedule.next_run()) if schedule.next_run() else None,
+                "job_count": len(schedule.get_jobs())
+            })
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to get scheduler status: {e}")
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/scheduler/force/<action>')
+    def force_scheduler_action(action):
+        """Force a scheduler action (pause or resume)"""
+        if not player:
+            return jsonify({"error": "Player not initialized"}), 500
+            
+        try:
+            # Find the job with the requested action
+            if action == "pause":
+                logger.info("[API] Forcing scheduled pause")
+                # Find and run all pause jobs
+                for job in schedule.get_jobs():
+                    if "pause" in str(job):
+                        job.run()
+                return jsonify({"status": "Pause action triggered", "player_state": player.current_state()})
+            
+            elif action == "resume" or action == "play":
+                logger.info("[API] Forcing scheduled resume")
+                # Find and run all resume jobs
+                for job in schedule.get_jobs():
+                    if "resume" in str(job):
+                        job.run()
+                return jsonify({"status": "Resume action triggered", "player_state": player.current_state()})
+            
+            else:
+                return jsonify({"error": f"Unknown action: {action}"}), 400
+                
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to force scheduler action: {e}")
+            return jsonify({"error": str(e)}), 500 
