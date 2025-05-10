@@ -1,8 +1,10 @@
 flask==2.3.3
+flask-cors==4.0.0
 yt-dlp==2023.11.16
 mutagen==1.47.0
 pygame==2.5.2
 websockets==12.0
+schedule==1.2.0
 # systemd-python is only needed for Raspberry Pi/Linux deployment. Uncomment if you are deploying on a Raspberry Pi/Linux system.
 #systemd-python==235
 #werkzeug==2.3.7
