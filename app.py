@@ -11,6 +11,8 @@ import signal
 import sys
 import gc
 import psutil
+import subprocess
+import platform
 from flask import Flask
 
 from src.logger import setup_logger
@@ -36,7 +38,7 @@ logger = logging.getLogger(__name__)
 def setup_scheduler(player_instance):
     # Get scheduled times from config or use defaults
     pause_time = config.get("scheduler", {}).get("pause_time", "19:00")
-    resume_time = config.get("scheduler", {}).get("resume_time", "22:05")
+    resume_time = config.get("scheduler", {}).get("resume_time", "10:00")
     
     logger.info(f"[SCHEDULER] Configured to pause at {pause_time} and resume at {resume_time}")
     
@@ -303,18 +305,73 @@ def setup_audio_system():
         
     return audio_normalizer
 
+def set_system_volume_to_max():
+    """Set the operating system volume to maximum level"""
+    system = platform.system()
+    try:
+        if system == 'Linux':
+            # For Raspberry Pi and most Linux systems
+            
+            # Try ALSA (standard Linux audio system)
+            try:
+                # Set main mixer controls
+                subprocess.run(['amixer', 'set', 'Master', '100%'], check=False)
+                subprocess.run(['amixer', 'set', 'PCM', '100%'], check=False)
+                
+                # Try common Raspberry Pi specific mixers
+                subprocess.run(['amixer', 'set', 'Headphone', '100%'], check=False)
+                subprocess.run(['amixer', 'set', 'Speaker', '100%'], check=False)
+                subprocess.run(['amixer', 'set', 'Digital', '100%'], check=False)
+                
+                # HDMI specific (for Raspberry Pi)
+                subprocess.run(['amixer', '-c', '0', 'set', 'HDMI', '100%'], check=False)
+                
+                logger.info("[VOLUME] Set ALSA system volume to maximum")
+            except Exception as e:
+                logger.warning(f"[VOLUME] Failed to set ALSA volume: {e}")
+                
+            # Try PulseAudio as fallback
+            try:
+                subprocess.run(['pactl', 'set-sink-volume', '@DEFAULT_SINK@', '100%'], check=False)
+                logger.info("[VOLUME] Set PulseAudio system volume to maximum")
+            except Exception as e:
+                logger.warning(f"[VOLUME] Failed to set PulseAudio volume: {e}")
+                
+        elif system == 'Windows':
+            # On Windows we could use pycaw library, but for now just log that it's not implemented
+            logger.info("[VOLUME] Setting Windows system volume not implemented")
+            
+        elif system == 'Darwin':  # macOS
+            try:
+                subprocess.run(['osascript', '-e', 'set volume output volume 100'], check=False)
+                logger.info("[VOLUME] Set macOS system volume to maximum")
+            except Exception as e:
+                logger.warning(f"[VOLUME] Failed to set macOS volume: {e}")
+    except Exception as e:
+        logger.error(f"[VOLUME] Failed to set system volume: {e}")
+        
+    # Also set the pygame mixer volume to maximum
+    pygame.mixer.music.set_volume(1.0)
+    logger.info("[VOLUME] Set pygame mixer volume to maximum")
+
 def init_app():
-    """Initialize the Flask application"""
+    """Initialize the Flask app"""
     audio_normalizer = setup_audio_system()
     
     setup_routes(app, AUDIO_FOLDER, player)
-
+    setup_cleanup_handlers()
+    
+    # Set system volume to maximum
+    set_system_volume_to_max()
+    
     app.song_cache = song_cache
     app.config['AUDIO_FOLDER'] = AUDIO_FOLDER
     app.audio_normalizer = audio_normalizer
     
     # Restore previous state if it exists
     restore_player_state()
+    
+    return app
 
 def restore_player_state():
     """Restore player state from saved state file"""

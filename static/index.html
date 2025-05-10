@@ -118,16 +118,23 @@
             lastStateUpdateTime = Date.now();
           }
           
+          // Store state first so it's available during song population
+          if (data.state) {
+            lastState = data.state;
+          }
+          
           if (data.songs) {
             songs = data.songs;
             populateSongs(songs);
-          }
-          
-          if (data.state) {
-            if (JSON.stringify(data.state) !== JSON.stringify(lastState)) {
-              lastState = data.state;
-              updateUI(data.state);
+            
+            // Always update UI after populating songs
+            // This ensures the active class is applied correctly
+            if (lastState && Object.keys(lastState).length > 0) {
+              updateUI(lastState);
             }
+          } else if (data.state) {
+            // Only update UI for state changes if not handling songs at the same time
+            updateUI(data.state);
           }
           
           if (data.message) {
@@ -181,7 +188,6 @@
 
     const playPauseToggle = () => sendCommand(isPaused ? "play" : "pause");
     const playSong = index => sendCommand(`play:${index}`);
-    const setVolume = volume => sendCommand(`volume:${volume}`);
     const toggleShuffle = () => sendCommand("toggle-shuffle");
 
     const easeInOutQuad = t => (t < 0.5 ? 2*t*t : -1 + (4-2*t)*t);
@@ -199,7 +205,6 @@
     };
 
     const updateUI = state => {
-      document.getElementById('volumeSlider').value = state.volume;
       isPaused = state.paused;
       document.getElementById('playPauseIcon').src = state.paused ?
           '/static/icons/svg/filled/play.svg' : '/static/icons/svg/filled/pause.svg';
@@ -300,9 +305,6 @@
       document.getElementById('nextButton').addEventListener('click', () => sendCommand("next"));
       document.getElementById('backButton').addEventListener('click', () => sendCommand("back"));
       document.getElementById('shuffleButton').addEventListener('click', toggleShuffle);
-      document.getElementById('volumeSlider').addEventListener('input', function() {
-        setVolume(this.value);
-      });
       document.getElementById('submitURL').addEventListener('click', e => {
         e.preventDefault();
         downloadYouTubeSong();
@@ -341,7 +343,6 @@
       <input type="url" id="youtubeURL" placeholder="Paste YouTube URL">
       <input type="submit" id="submitURL" value="Submit">
   </div>
-  <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.5">
   <div class="form-group">
       <input type="text" id="search" class="form-control" placeholder="Search for a song">
       <button id="deleteButton">Delete</button> 
