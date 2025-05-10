@@ -68,7 +68,9 @@ class SongCache:
         start_time = time.time()
         
         try:
-            for file in os.listdir(folder):
+            # Sort the files to ensure consistent ordering across platforms
+            files = sorted(os.listdir(folder))
+            for file in files:
                 file_path = os.path.join(folder, file)
                 current_files.add(file_path)
                 
@@ -130,6 +132,8 @@ class SongCache:
             if os.path.exists(normalized_folder) and os.path.isdir(normalized_folder):
                 logger.info(f"[SCAN] Scanning normalized audio folder: {normalized_folder}")
                 for root, _, files in os.walk(normalized_folder):
+                    # Sort the files to ensure consistent ordering
+                    files = sorted(files)
                     for file in files:
                         normalized_file_path = os.path.join(root, file)
                         
