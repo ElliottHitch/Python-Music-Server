@@ -12,7 +12,6 @@ import sys
 import gc
 import psutil
 from flask import Flask
-import json
 
 from src.logger import setup_logger
 from src.config import load_config, load_state, save_state
@@ -37,7 +36,7 @@ logger = logging.getLogger(__name__)
 def setup_scheduler(player_instance):
     # Get scheduled times from config or use defaults
     pause_time = config.get("scheduler", {}).get("pause_time", "19:00")
-    resume_time = config.get("scheduler", {}).get("resume_time", "10:00")
+    resume_time = config.get("scheduler", {}).get("resume_time", "22:05")
     
     logger.info(f"[SCHEDULER] Configured to pause at {pause_time} and resume at {resume_time}")
     
@@ -135,7 +134,6 @@ player = None
 config = load_config()
 AUDIO_FOLDER = config["audio_folder"]
 shutdown_event = threading.Event()
-restart_in_progress = False
 song_cache = SongCache()
 scheduler_thread = None
 
@@ -235,7 +233,7 @@ async def start_servers():
     )
     
     loop = asyncio.get_running_loop()
-    flask_thread = loop.run_in_executor(None, lambda: app.run(
+    loop.run_in_executor(None, lambda: app.run(
         host="0.0.0.0", 
         port=5000, 
         debug=False, 

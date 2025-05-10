@@ -51,7 +51,19 @@ async def handle_command(command, websocket, player, save_state_callback):
     command_changed_state = False
     response_data = {}
     
-    if command in {"play", "pause", "next", "back", "toggle-shuffle"}:
+    if command == "ping":
+        # Simple ping-pong for connection testing
+        await websocket.send("pong")
+        return False
+    elif command == "get_state":
+        # Special command to refresh state without changing anything
+        response_data.update({
+            "state": player.current_state(),
+            "songs": format_songs_payload(player.track_list)
+        })
+        await send_response(websocket, response_data)
+        return False
+    elif command in {"play", "pause", "next", "back", "toggle-shuffle"}:
         command_map = {
             "play": player.play,
             "pause": player.pause,

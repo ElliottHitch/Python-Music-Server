@@ -14,8 +14,76 @@
     let reconnectTimer = null;
     let reconnectDelay = 1000;
     let lastState = {};
+    let isVisible = true;
+    let pingInterval = null;
+    let lastPingTime = 0;
+    const PING_INTERVAL_MS = 30000; // 30 seconds
+    const MAX_PING_WAIT_MS = 10000; // 10 seconds to wait for pong
+    let lastStateUpdateTime = Date.now();
+    const MAX_STATE_UPDATE_SILENCE = 60000; // 1 minute without state updates = zombie connection
+
+    document.addEventListener('visibilitychange', () => {
+      isVisible = document.visibilityState === 'visible';
+      
+      if (isVisible) {
+        // Check if we haven't received state updates for a while
+        const timeSinceLastUpdate = Date.now() - lastStateUpdateTime;
+        if (timeSinceLastUpdate > MAX_STATE_UPDATE_SILENCE) {
+          console.log('Connection appears stale, reconnecting...');
+          connectWebSocket();
+        } else {
+          console.log('Tab is visible again, checking connection...');
+          // Force reconnect if connection is closed or in error state
+          if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+            connectWebSocket();
+          } else {
+            // Request state refresh from server even if connected
+            sendCommand('get_state');
+          }
+        }
+      }
+    });
+
+    const startPingInterval = () => {
+      if (pingInterval) clearInterval(pingInterval);
+      
+      pingInterval = setInterval(() => {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+          lastPingTime = Date.now();
+          websocket.send('ping');
+          
+          // Set up pong timeout - if server doesn't respond, assume disconnected
+          setTimeout(() => {
+            const pingElapsed = Date.now() - lastPingTime;
+            if (pingElapsed >= MAX_PING_WAIT_MS) {
+              console.log('Ping timeout - reconnecting...');
+              connectWebSocket();
+            }
+          }, MAX_PING_WAIT_MS);
+        }
+      }, PING_INTERVAL_MS);
+    };
+
+    const stopPingInterval = () => {
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
+    };
 
     const connectWebSocket = () => {
+      // Stop any existing ping interval
+      stopPingInterval();
+      
+      if (websocket) {
+        try {
+          websocket.onclose = null;
+          websocket.close();
+        } catch (e) {
+          console.error("Error closing existing websocket:", e);
+        }
+      }
+      
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -29,11 +97,26 @@
         console.log("Connected to WebSocket server");
         reconnectDelay = 1000;
         setStatus("Connected", 1000);
+        // Start ping interval
+        startPingInterval();
+        // Get current state immediately after connection
+        sendCommand('get_state');
       };
       
       websocket.onmessage = event => {
         try {
+          // Handle pong response
+          if (event.data === 'pong') {
+            lastPingTime = 0; // Reset ping timer
+            return;
+          }
+          
           const data = JSON.parse(event.data);
+          
+          if (data.songs || data.state) {
+            // Update the timestamp whenever we get a real state update
+            lastStateUpdateTime = Date.now();
+          }
           
           if (data.songs) {
             songs = data.songs;
@@ -57,10 +140,12 @@
       
       websocket.onerror = error => {
         console.error("WebSocket Error:", error);
+        stopPingInterval();
       };
       
       websocket.onclose = () => {
         console.log(`WebSocket closed. Reconnecting in ${reconnectDelay/1000}s...`);
+        stopPingInterval();
         
         reconnectTimer = setTimeout(() => {
           connectWebSocket();
