@@ -229,9 +229,7 @@ async def start_servers():
     ws_server = await websockets.serve(
         lambda ws, path: websocket_handler(ws, player, save_state),
         "0.0.0.0", 
-        8765,
-        ping_interval=30, 
-        ping_timeout=60    
+        8765
     )
     
     loop = asyncio.get_running_loop()

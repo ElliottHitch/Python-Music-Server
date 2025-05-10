@@ -51,11 +51,7 @@ async def handle_command(command, websocket, player, save_state_callback):
     command_changed_state = False
     response_data = {}
     
-    if command == "ping":
-        # Simple ping-pong for connection testing
-        await websocket.send("pong")
-        return False
-    elif command == "get_state":
+    if command == "get_state":
         # Special command to refresh state without changing anything
         response_data.update({
             "state": player.current_state(),
